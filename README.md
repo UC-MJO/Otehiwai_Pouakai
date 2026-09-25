@@ -25,7 +25,7 @@ something goes wrong.
 #    everything else. numpy<1.24 (pinned in pyproject.toml) avoids a
 #    numpy/solve-field incompatibility (see step 2's note below); no
 #    manual patching of any shared install required.
-git clone https://github.com/ZacharyLane1204/Otehiwai_Pouakai.git
+git clone https://github.com/UC-MJO/Otehiwai_Pouakai.git
 cd Otehiwai_Pouakai
 conda create -n Pouakai python=3.11.15 -c conda-forge -y --copy && conda activate Pouakai
 export PYTHONNOUSERSITE=1
@@ -101,7 +101,7 @@ see the comments in each) rather than installed as part of the package.
 ## Install (recommended)
 
 ```bash
-git clone https://github.com/ZacharyLane1204/Otehiwai_Pouakai.git
+git clone https://github.com/UC-MJO/Otehiwai_Pouakai.git
 cd Otehiwai_Pouakai
 conda create -n Pouakai python=3.11.15 -c conda-forge -y --copy && conda activate Pouakai
 export PYTHONNOUSERSITE=1
@@ -175,7 +175,7 @@ A few things worth knowing about that sequence:
 ### Alternative: full conda solve
 
 ```bash
-git clone https://github.com/ZacharyLane1204/Otehiwai_Pouakai.git
+git clone https://github.com/UC-MJO/Otehiwai_Pouakai.git
 cd Otehiwai_Pouakai
 conda env create -f environment.yml
 conda activate Pouakai
