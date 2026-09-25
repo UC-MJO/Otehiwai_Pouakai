@@ -1,3 +1,0 @@
-FILE   00;36      # normal file
-DIR    0;33   # directory
-LINK   00;32   # symbolic link.  (If you set this to 'target' instead of a

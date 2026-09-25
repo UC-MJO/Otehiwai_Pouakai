@@ -1,9 +1,40 @@
+Metadata-Version: 2.4
+Name: otehiwai-pouakai
+Version: 2026.1.0
+Summary: End-to-end FLI/B&C astronomical image reduction, astrometric, and photometric calibration pipeline
+Author: Zachary Lane
+License: MIT
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy<1.24,>=1.22
+Requires-Dist: pandas>=1.3
+Requires-Dist: scipy>=1.9
+Requires-Dist: matplotlib>=3.6
+Requires-Dist: astropy<5.3,>=5.2
+Requires-Dist: astroquery @ git+https://github.com/astropy/astroquery.git
+Requires-Dist: astroscrappy<1.3,>=1.1
+Requires-Dist: photutils<1.12,>=1.9
+Requires-Dist: scikit-image<0.19,>=0.18
+Requires-Dist: scikit-learn>=1.0
+Requires-Dist: joblib>=1.1
+Requires-Dist: tqdm>=4.60
+Requires-Dist: sep<1.3,>=1.2
+Requires-Dist: pysynphot>=2.0
+Requires-Dist: setuptools<81
+Requires-Dist: ipython
+Provides-Extra: calibrimbore
+Requires-Dist: calibrimbore @ git+https://github.com/ZacharyLane1204/calibrimbore.git ; extra == "calibrimbore"
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Dynamic: license-file
+
 # Otehiwai Pouakai
 
 End-to-end FLI/B&C astronomical image reduction, astrometric (WCS), and
-photometric calibration pipeline: dark/flat master-building, advanced structure background
+photometric calibration pipeline: dark/flat master-building, background
 subtraction, ePSF-based photometry, Gaia/`calibrimbore`-based zeropoint
-calibration (accounting for atmospheric corrections), and cron-friendly orchestration with persistent
+calibration, and cron-friendly orchestration with persistent
 failure-tracking so re-runs don't re-attempt known-bad frames.
 
 This package was designed for and is deployed on the **University of
@@ -31,9 +62,7 @@ conda create -n Pouakai python=3.11.15 -c conda-forge -y --copy && conda activat
 export PYTHONNOUSERSITE=1
 python -m pip install --upgrade pip setuptools wheel
 conda update ca-certificates -y
-pip install -e . 
-pip install -e ".[calibrimbore]" 
-pip install --upgrade certifi
+pip install -e . && pip install -e ".[calibrimbore]" && pip install --upgrade certifi
 
 # 2. Confirm the install itself is sound before running anything real
 python -c "import otehiwai_pouakai; print(otehiwai_pouakai.__version__)"
@@ -53,6 +82,13 @@ python run_test_20250914.py
 targets one specific night's data as a smoke test) -- see
 [Running the full pipeline](#running-the-full-pipeline) for how to
 point the `Pouakai` class at your own file list once this succeeds.
+
+If step 3 reports WCS-stage failures, see
+[solve-field: numpy compatibility](#solve-field-fails-with-attributeerror-module-numpy-has-no-attribute-bool)
+-- the `numpy<1.24` pin should already avoid this, but if something
+else in your environment has pulled in a newer numpy anyway,
+`./scripts/patch_astrometry_numpy_compat.sh` is the fallback (needs
+write access to the shared astrometry.net install).
 
 If step 3 reports other failures, its printed summary already breaks
 them down by stage and reason (pulled from `failure_ledger.py`) --
@@ -138,7 +174,9 @@ A few things worth knowing about that sequence:
   Python ignore your personal `~/.local` site-packages entirely for
   those installs -- keep it set, since it protects against `pip`
   silently landing packages outside the env on a shared/misconfigured
-  install.
+  install (see [Known issues](#known-issues) if `pip list` after
+  activation still shows a large, unrelated package set, or if you
+  suspect a global `PYTHONPATH` is interfering).
 - **`python -m pip install --upgrade pip setuptools wheel` before `pip
   install -e .`.** A freshly created env's bundled `pip` can be old
   enough to predate PEP 660 (editable installs from a
@@ -166,8 +204,13 @@ A few things worth knowing about that sequence:
   release.** This is required, not just preferred: calibrimbore's own
   README states it needs astroquery's master branch, and using an
   older release causes `sauron.estimate_mag` to fail during
-  calibration with cryptic errors (confirmed empirically). For a reproducible
-  build, pin to a specific commit instead of tracking `main`:
+  calibration with cryptic errors (confirmed empirically, 2026-07:
+  `KeyError: 'g_psf'`, and a str/int comparison `TypeError`) -- both
+  symptoms of calibrimbore getting back a differently-shaped catalog
+  table than it expects from an older astroquery. Needs Python >=3.10,
+  which 3.11 already satisfies -- this is also why 3.11 (not 3.9) is
+  the default now. For a reproducible build, pin to a specific commit
+  instead of tracking `main`:
   ```
   "astroquery @ git+https://github.com/astropy/astroquery.git@<commit_hash>"
   ```
@@ -197,7 +240,7 @@ Python 3.9 is not a safe substitute here either, since `calibrimbore`
 needs astroquery's `main` branch regardless of which install route you
 use (see the astroquery bullet above).
 
-### Alternative: plain venv + pip (not recommended and ill-tested)
+### Alternative: plain venv + pip
 
 ```bash
 python3.11 -m venv .venv
@@ -227,6 +270,25 @@ environment variable) to `os.environ['PATH']` for the current process
 and anything it spawns as a subprocess -- so this happens automatically,
 without any shell profile edit, and without being able to be silently
 shadowed by another `solve-field` earlier on `PATH`.
+
+That last point matters because of a regression we hit in practice: an
+earlier version of `environment.yml` also installed conda-forge's
+`astrometry` package, which puts its *own* `solve-field` on `PATH`. That
+build has no index files configured out of the box, so it still runs,
+but fails partway through with:
+```
+You must list at least one index in the config file (.../etc/astrometry.cfg)
+```
+which surfaces in this pipeline as a generic wcs-stage failure --
+`no solution (.new file not produced)` -- rather than the underlying
+config problem, since `wcs_astrometrynet_local` can't distinguish "no
+astrometric match found" from "solve-field itself was misconfigured" (both
+just mean no `.new` file was produced). `environment.yml` no longer
+installs conda-forge's `astrometry` package for this reason -- see the
+comment there if you're deploying somewhere without an existing manual
+astrometry.net install and need to reinstate it (you'll also need to
+fetch and register index files yourself; conda-forge's package doesn't
+include them).
 
 If you ever call `solve-field` by hand at a terminal, outside this
 package, you'd still want the shell export too:
@@ -259,7 +321,23 @@ to avoid the bug entirely, with no filesystem write access to
 
 **Alternative, if you want a modern numpy and have write access to
 `/usr/local/astrometry/`:** patch the astrometry.net install directly
-instead of pinning numpy down.
+instead of pinning numpy down:
+
+```bash
+./scripts/patch_astrometry_numpy_compat.sh
+# or, for a different install location:
+./scripts/patch_astrometry_numpy_compat.sh /path/to/astrometry/lib/python/astrometry/util/
+```
+
+It patches only the deprecated bare aliases (`np.bool`, `np.int`,
+`np.float`, `np.object`, `np.long`, `np.str`, `np.complex` → their
+builtin equivalents), leaving the still-valid numpy scalar types
+(`np.bool_`, `np.int32`, `np.float64`, etc.) untouched, and keeps a
+timestamped `.bak` copy of every file it changes. This needs write
+permission on that shared install -- if you get `Permission denied`
+running it, either ask whoever manages it (it's a one-line change per
+file) or fall back to the numpy pin above, which needs no special
+permissions at all.
 
 ## pysynphot CDBS reference data
 
@@ -322,18 +400,6 @@ two.
 
 ## Running the full pipeline
 
-There are two equivalent ways to drive the pipeline: importing the
-`Pouakai` class from Python (a script, a REPL, a Jupyter notebook), or
-the `otehiwai-pouakai` command installed on `PATH`. Both go through the
-exact same code -- the command-line tool is a thin `argparse` wrapper
-(`build_arg_parser()`/`main()` in `pipeline.py`) that just builds the
-same `Pouakai(...)` call for you. Pick whichever fits how you work;
-see [Running individual stages](#running-individual-stages-red--wcs--cal-only)
-below for the one place the two methods use different names for the
-same option (input-file overrides for the wcs/cal stages).
-
-### From Python
-
 ```python
 from otehiwai_pouakai import Pouakai, setup_logging
 
@@ -342,52 +408,12 @@ Pouakai(files=[...], save_location='/path/to/save_location/',
         organise_files=True, make_masters=True, run=True, mode='modulo')
 ```
 
-`files` can be any list of file paths -- build it however's convenient,
-e.g. with `otehiwai_pouakai.matau.get_file_paths(glob_pattern)` (what
-the CLI uses internally for `--glob`) or `glob.glob(...)` directly.
-
-### From the command line
-
-Once installed (`pip install -e .` registers the `otehiwai-pouakai`
-console script -- see [Install](#install-recommended)):
+or from the command line, once installed:
 
 ```bash
 otehiwai-pouakai --mode modulo --glob "/path/to/archive/20260714*/*.fit" \
     --save-location /path/to/save_location/
 ```
-
-`--glob` and `--files` are mutually exclusive, alternative ways of
-specifying the same `files` argument Python callers pass directly:
-
-```bash
-# equivalent to Python's files=[...]
-otehiwai-pouakai --mode modulo --files /path/to/frame1.fit /path/to/frame2.fit \
-    --save-location /path/to/save_location/
-```
-
-Every other `Pouakai(...)` keyword argument has a matching `--flag`
-(e.g. `num_cores` → `--num-cores`, `wcs_order` → `--wcs-order`) -- see
-the [full parameter table](#pouakai-parameters) below, or run
-`otehiwai-pouakai --help` for the authoritative, always-current list
-straight from `argparse`. Boolean flags that default `True` in Python
-(`organise_files`, `make_masters`) are switched off on the CLI with a
-`--no-...` flag instead of e.g. `--organise-files false` (i.e.
-`--no-organise`, `--no-masters`).
-
-A cron-friendly nightly run (safe to re-run -- already-processed files
-are skipped per-stage, and known-bad frames are skipped too unless
-retried, see [Quickstart](#quickstart-from-scratch)):
-
-```bash
-0 14 * * * /path/to/envs/Pouakai/bin/otehiwai-pouakai --mode modulo \
-    --glob "/home/phys/astro8/MJArchive/octans/$(date +%Y%m%d)*/*.fit" \
-    --save-location /home/users/<you>/Otehiwai_Nightly/ \
-    >> /home/users/<you>/logs/pouakai_cron.log 2>&1
-```
-
-Use the env's own interpreter/console-script path explicitly in cron
-(as above) rather than relying on `conda activate`, since cron doesn't
-run an interactive login shell by default.
 
 See `scripts/run_test_20250914.py` for a fuller worked example
 (organise → build masters → reduce → WCS-solve → calibrate → per-stage
@@ -479,152 +505,6 @@ cadence.
 | `psf_error_inflation_max_scale` | `8.0` | Ceiling on the empirical inflation applied to PSF flux errors (formal PSF-fit covariance is typically optimistic) -- see `psf_photometry.inflate_psf_errors`. If errors are consistently hitting this ceiling, check `calibration_diagnostics.py --full` to see whether that particular field needs a different scale. |
 | `assess_spatial_variation` | `True` | Diagnostic-only check for spatially varying zeropoint bias across the frame -- does not modify the image or the zeropoint used; purely informational logging. |
 
-## Running individual stages: red / wcs / cal only
-
-`mode` (Python) / `--mode` (CLI) controls how much of the chain runs:
-
-| `mode` | Runs | Typical use |
-|---|---|---|
-| `'modulo'` (default) | reduction → WCS → calibration, in order | a normal full run |
-| `'red'` | reduction only | just bias/dark/flat-correct and background-subtract raw frames |
-| `'wcs'` | WCS-solving only | astrometrically solve some already-reduced frames |
-| `'cal'` | calibration only | photometrically calibrate some already-WCS-solved frames |
-
-`organise_files` and `make_masters` (Python) / the absence of
-`--no-organise` and `--no-masters` (CLI) still run before whichever
-stage `mode` selects, since reduction depends on having up-to-date
-catalogs and master calibration frames available -- pass
-`organise_files=False, make_masters=False` (`--no-organise
---no-masters`) too if you want to skip straight to the selected stage
-with no setup work at all.
-
-Each single-stage mode has its own dedicated input-override option, so
-you don't need the frames to already sit inside a `save_location/red/`
-or `save_location/wcs/` folder from a prior run of *this* pipeline --
-useful for re-running just one stage after a parameter change, or for
-feeding in frames prepared some other way entirely. Priority when more
-than one is given: explicit file list > glob pattern > directory
-(globbed for `*.fits.gz`) > the stage's own default location.
-
-| Stage | Default input | Python override(s) | CLI override(s) |
-|---|---|---|---|
-| `red` | the `files` list you pass in | *(none needed -- `files` already is the input)* | *(none needed -- `--glob`/`--files` already is the input)* |
-| `wcs` | `save_location/red/*.fits.gz` | `wcs_input_files`, `wcs_input_dir`, `wcs_input_glob` | `--wcs-input-dir`, `--wcs-input-glob` |
-| `cal` | `save_location/wcs/*.fits.gz` | `cal_input_files`, `cal_input_dir`, `cal_input_glob` | `--cal-input-dir`, `--cal-input-glob` |
-
-Outputs always land under *this run's* `save_location` (`wcs/` for the
-WCS stage, `cal/`/`phot_table/`/`zp/` for calibration) regardless of
-where the input frames came from.
-
-### Reduction only (`red`)
-
-**Python:**
-```python
-from otehiwai_pouakai import Pouakai, setup_logging
-
-logger, log_file = setup_logging('/path/to/save_location/')
-Pouakai(files=[...], save_location='/path/to/save_location/', mode='red')
-```
-
-**Command line:**
-```bash
-otehiwai-pouakai --mode red --glob "/path/to/archive/20260714*/*.fit" \
-    --save-location /path/to/save_location/
-```
-
-`files`/`--glob`/`--files` is still how you tell the reduction stage
-*what to reduce* -- there's no separate override for it, since it's
-already exactly the input list.
-
-### WCS-solving only (`wcs`)
-
-Defaults to solving whatever's already in `save_location/red/` from a
-prior reduction run:
-
-**Python:**
-```python
-Pouakai(files=[], save_location='/path/to/save_location/', mode='wcs',
-        organise_files=False, make_masters=False)
-```
-
-**Command line:**
-```bash
-otehiwai-pouakai --mode wcs --save-location /path/to/save_location/ \
-    --no-organise --no-masters
-```
-
-(`files=[]` / omitting `--glob`/`--files` is fine here -- `red` isn't
-running, so there's nothing for the raw-frame list to feed. The CLI
-only requires `--glob`/`--files` when it can't otherwise tell what a
-`mode=wcs`/`mode=cal` run should act on -- see `stage_input_given` in
-`pipeline.py`'s `main()` -- so an explicit input override, as below,
-also satisfies it.)
-
-To WCS-solve a specific folder or file subset instead of
-`save_location/red/`:
-
-**Python:**
-```python
-Pouakai(files=[], save_location='/path/to/save_location/', mode='wcs',
-        organise_files=False, make_masters=False,
-        wcs_input_dir='/some/other/folder/of/reduced_frames/')
-# or: wcs_input_glob='/some/other/folder/*_reduced.fits.gz'
-# or: wcs_input_files=['/path/a.fits.gz', '/path/b.fits.gz']
-```
-
-**Command line:**
-```bash
-otehiwai-pouakai --mode wcs --save-location /path/to/save_location/ \
-    --wcs-input-dir /some/other/folder/of/reduced_frames/
-# or: --wcs-input-glob '/some/other/folder/*_reduced.fits.gz'
-```
-
-(There's no `--wcs-input-files` flag for an explicit list on the CLI --
-use `--wcs-input-glob` with a pattern that matches just those files, or
-drive it from Python instead.)
-
-### Calibration only (`cal`)
-
-Defaults to calibrating whatever's already in `save_location/wcs/`:
-
-**Python:**
-```python
-Pouakai(files=[], save_location='/path/to/save_location/', mode='cal',
-        organise_files=False, make_masters=False)
-```
-
-**Command line:**
-```bash
-otehiwai-pouakai --mode cal --save-location /path/to/save_location/ \
-    --no-organise --no-masters
-```
-
-To calibrate a specific folder of already WCS-solved frames instead
-(they don't need to follow this pipeline's `_wcs` filename convention
-or live under this run's `save_location/wcs/` at all):
-
-**Python:**
-```python
-Pouakai(files=[], save_location='/path/to/save_location/', mode='cal',
-        organise_files=False, make_masters=False,
-        cal_input_dir='/home/users/<you>/Pouakai_Test_20250914/wcs')
-# or: cal_input_glob='/some/folder/*_wcs.fits.gz'
-# or: cal_input_files=['/path/a_wcs.fits.gz', '/path/b_wcs.fits.gz']
-```
-
-**Command line:**
-```bash
-otehiwai-pouakai --mode cal --save-location /path/to/save_location/ \
-    --cal-input-dir /home/users/<you>/Pouakai_Test_20250914/wcs
-# or: --cal-input-glob '/some/folder/*_wcs.fits.gz'
-```
-
-Calibration-specific tuning parameters (`--match-tol-px`,
-`--max-calibration-stars`, `--no-grouping`, etc.) apply here the same
-as in a full `modulo` run -- see the
-[photometric calibration parameter table](#pouakai-parameters) above,
-or `otehiwai-pouakai --help`.
-
 ## Photometry only (no full pipeline)
 
 If you just want PSF photometry on an already-reduced frame -- without
@@ -632,21 +512,7 @@ running organise/master-building/reduction/WCS-solving/calibration --
 `psf_photometry.py` (and its ePSF-building and spatial-variation
 support in `spatial_epsf.py`) can be used directly.
 `scripts/run_psf_photometry_example.py` is a worked, copy-and-adapt
-example wrapping this in a small `PSFPhotometryRunner` class.
-
-**This is a Python class, not a `Pouakai`-style installed CLI tool** --
-there's no `otehiwai-pouakai`-equivalent console script for photometry
-alone, and no `--flag` options to look up. `scripts/` is explicitly
-"copy and adapt", not installed as part of the package (see
-[Repository layout](#repository-layout)), so it isn't on `PATH` or
-importable by name from just anywhere either way -- run it from inside
-`scripts/`, or copy `run_psf_photometry_example.py` next to your own
-code first. Below are both ways to actually run it.
-
-### Non-command-line: interactive Python / a notebook
-
-The normal way to use this -- import the class and call `.run(...)`
-directly, from a REPL, a Jupyter notebook, or your own script:
+example wrapping this in a small `PSFPhotometryRunner` class:
 
 ```python
 from run_psf_photometry_example import PSFPhotometryRunner
@@ -666,44 +532,6 @@ runner.save(result, 'my_output.csv')
 A single target and a list of targets go through the identical code
 path (a scalar is just the N=1 case of "a list"), so there's nothing
 different to learn between photometering one star and a few thousand.
-
-### From the command line
-
-Two options, depending on whether you want a reusable script or a
-one-off result:
-
-**Option A -- edit and run the example script directly.** Open
-`scripts/run_psf_photometry_example.py`, edit the `if __name__ ==
-'__main__':` block at the bottom (set `FITS_FILE` and whichever
-`runner.run(...)` calls you want, then:
-
-```bash
-cd scripts
-python run_psf_photometry_example.py
-```
-
-This is the same approach the [Quickstart](#quickstart-from-scratch)
-uses for `run_test_20250914.py` -- these scripts are meant to be
-edited in place for your own target/frame, not passed arguments.
-
-**Option B -- a one-off, no-file-editing terminal command**, useful for
-a quick check without touching the script itself:
-
-```bash
-cd scripts
-python -c "
-from run_psf_photometry_example import PSFPhotometryRunner
-runner = PSFPhotometryRunner('/path/to/reduced_frame.fits')
-result = runner.run(ra=83.6331, dec=-5.3911)
-print(result[['x_fit', 'y_fit', 'ra', 'dec', 'flux_fit', 'mag_inst']])
-runner.save(result, 'my_output.csv')
-"
-```
-
-Both options must be run **from inside `scripts/`** (or with
-`scripts/` on `PYTHONPATH`), since `run_psf_photometry_example.py` is a
-standalone module, not something `pip install -e .` puts on `PATH` or
-makes importable by name.
 
 **`PSFPhotometryRunner(fits_file, ...)` setup options**
 
@@ -741,6 +569,42 @@ pip install -e ".[dev]"
 ```
 
 ## Known issues
+
+- **`pip install -e .` reports dependency conflicts about packages this
+  project doesn't depend on** (e.g. `lightkurve`, `psfmachine`, `sfft`,
+  `pysiaf`, `autograd`, `kbackground`, `reproject`) **and/or `pip list`
+  shows a huge, unrelated package set inside the `Pouakai` env, even
+  after recreating the env with `--copy` and setting
+  `PYTHONNOUSERSITE=1`.** This means `pip`/Python are seeing packages
+  from outside the env entirely. Two separate possible causes, check
+  both:
+
+  1. A global **`PYTHONPATH`** environment variable, set somewhere in
+     your shell profile (`.bashrc`, `.cshrc`, etc.) -- common on shared
+     university installs, to make the base Anaconda importable by
+     default for every login. This overrides env isolation regardless
+     of `PYTHONNOUSERSITE` or which install method you use. Check with:
+     ```bash
+     echo $PYTHONPATH
+     python -c "import sys; print('\n'.join(sys.path))"
+     ```
+     Look for anything pointing at a shared/system Python (e.g.
+     `/usr/local/phys/Linux/anaconda3.9/...`) while the `Pouakai` env is
+     active. If found, `unset PYTHONPATH` before activating the env (or
+     remove/guard the export in your shell profile) and reinstall.
+  2. `pip` falling back to `~/.local` because it thinks the env's own
+     site-packages isn't writable -- `PYTHONNOUSERSITE=1` (already in
+     the recommended [Install](#install-recommended) commands) should
+     prevent this from landing anywhere, but if `pip` then fails
+     outright with a genuine permission error instead, that confirms
+     the env's site-packages truly isn't writable by your account,
+     worth raising with whoever manages the shared conda install.
+
+  None of the packages named in the conflict warnings are
+  `otehiwai-pouakai` dependencies regardless -- check `pyproject.toml`
+  if in doubt. A fully personal conda install (e.g. Miniconda under
+  `~/miniconda3`, independent of the shared one) sidesteps both causes
+  entirely.
 
 - **`pip install -e .` fails with `Directory cannot be installed in
   editable mode ... editable mode currently requires a setuptools-based
@@ -819,6 +683,18 @@ pip install -e ".[dev]"
   `environment.yml`, so a normal install won't hit it -- only relevant
   if something else in your environment forces a newer `setuptools`. If
   you hit the error anyway: `pip install "setuptools<81"`.
+
+- **Calibration fails with `calibration step failed: 'g_psf'` and/or
+  `'<' not supported between instances of 'str' and 'int'`.** Means
+  `astroquery` is installed from PyPI rather than its GitHub `main`
+  branch. `calibrimbore`'s own README states it requires astroquery's
+  master branch for its PS1/catalog queries; an older release returns
+  a differently-shaped catalog table to `sauron.estimate_mag`, causing
+  these two specific errors (confirmed empirically, 2026-07). This is
+  already the default (`pyproject.toml` pulls astroquery from
+  `git+https://github.com/astropy/astroquery.git`) -- if you've
+  overridden that back to a PyPI release (e.g. to support Python 3.9),
+  restore the git-source line and use Python >=3.10.
 
 - **`pip install "otehiwai-pouakai[...]"` (by package name) will always
   fail with "No matching distribution found".** This package is not
