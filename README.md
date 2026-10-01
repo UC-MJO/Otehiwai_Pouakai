@@ -13,65 +13,54 @@ deployment's specific layout. If you're installing this elsewhere, the
 same paths are all overridable via environment variables (see
 [Configuring pipeline data locations](#configuring-pipeline-data-locations)).
 
-## Quickstart: from scratch
+## Quickstart
 
-Every command needed to go from a bare checkout to a first successful
-test run, in order. Each step links to fuller detail further down if
-something goes wrong.
+Python 3.10 and 3.11 are supported. The examples below use Python 3.11.
+
+### 1. Clone the repository
 
 ```bash
-# 1. Clone and install (see Install below for what each line does).
-#    conda is used only for the Python interpreter -- pip installs
-#    everything else. numpy<1.24 (pinned in pyproject.toml) avoids a
-#    numpy/solve-field incompatibility (see step 2's note below); no
-#    manual patching of any shared install required.
 git clone https://github.com/UC-MJO/Otehiwai_Pouakai.git
 cd Otehiwai_Pouakai
-conda create -n Pouakai python=3.11.15 -c conda-forge -y --copy && conda activate Pouakai
-export PYTHONNOUSERSITE=1
-python -m pip install --upgrade pip setuptools wheel
-conda update ca-certificates -y
-pip install -e . 
-pip install -e ".[calibrimbore]" 
-pip install --upgrade certifi
-
-# 2. Confirm the install itself is sound before running anything real
-python -c "import otehiwai_pouakai; print(otehiwai_pouakai.__version__)"
-which python; which pip          # both should be inside .../envs/Pouakai/...
-pip list | wc -l                 # should be a short, mostly-this-project's-deps list --
-                                  # if it's huge (100+), see Known issues
-echo $PYSYN_CDBS                 # should print /home/phys/astronomy/Pysynphot_Files/
-solve-field --help | head -1     # should succeed with no PATH/import errors
-
-# 3. Run the worked example end-to-end (organise -> masters -> reduce ->
-#    WCS-solve -> calibrate -> per-stage failure summary)
-cd scripts
-python run_test_20250914.py
 ```
 
-`run_test_20250914.py` is a real, adapt-before-reusing example (it
-targets one specific night's data as a smoke test) -- see
-[Running the full pipeline](#running-the-full-pipeline) for how to
-point the `Pouakai` class at your own file list once this succeeds.
+### 2. Install
 
-If step 3 reports other failures, its printed summary already breaks
-them down by stage and reason (pulled from `failure_ledger.py`) --
-check that first. If step 1 or 2 itself fails, jump to
-[Known issues](#known-issues); every failure mode hit so far while
-setting this up is documented there with its exact fix.
+If Astrometry.net is already installed, use either **uv** or **pip**.
 
-`run_test_20250914.py` has `RETRY_KNOWN_FAILURES = True` by default, so
-if you're re-running it after fixing something upstream (e.g. after
-step 2 above, or after any other fix), previously-recorded failures at
-every stage are retried automatically rather than skipped as
-"known-bad" -- no need to clear `logs/failed_files.csv` by hand first.
+**uv**
+
+```bash
+uv venv --python 3.11 .venv
+uv pip install --python .venv/bin/python .
+source .venv/bin/activate
+```
+
+**pip**
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+```
+
+To install the pipeline **and Astrometry.net** together, use **conda**:
+
+```bash
+conda env create --solver libmamba -f environment.yml
+conda activate Pouakai
+```
+
+### 3. Configure your data
+
+Before processing observations, configure [pipeline data locations](#configuring-pipeline-data-locations) and [Astrometry.net indices](#solve-field-astrometrynet). See the [CDBS reference data notes](#pysynphot-cdbs-reference-data) for workflows that require additional pysynphot data.
 
 ## Repository layout
 
 ```
 Otehiwai_Pouakai/
 ├── pyproject.toml          # package metadata + dependencies
-├── environment.yml         # full-conda-solve alternative (see Install)
+├── environment.yml         # complete environment including Astrometry.net
 ├── src/otehiwai_pouakai/   # the installable library
 │   ├── pipeline.py         #   orchestration (was otehiwai_pouakai.py) -- Pouakai class, setup_logging, main()
 │   ├── config.py           #   all filesystem locations, via environment variables
@@ -98,168 +87,39 @@ be copied and adapted (they still reference site-specific paths like
 `/home/phys/astro8/MJArchive/octans/` in a couple of places, by design --
 see the comments in each) rather than installed as part of the package.
 
-## Install (recommended)
-
-```bash
-git clone https://github.com/UC-MJO/Otehiwai_Pouakai.git
-cd Otehiwai_Pouakai
-conda create -n Pouakai python=3.11.15 -c conda-forge -y --copy && conda activate Pouakai
-export PYTHONNOUSERSITE=1
-python -m pip install --upgrade pip setuptools wheel
-conda update ca-certificates -y
-pip install -e . 
-pip install -e ".[calibrimbore]"
-pip install --upgrade certifi
-```
-
-This uses conda only for the Python interpreter (`--copy` avoids
-inheriting read-only permissions from a shared package cache -- see
-[Known issues](#known-issues) if you still see this), then lets `pip`
-install everything else from `pyproject.toml` as prebuilt wheels from
-PyPI. This is deliberately **not** `conda env create -f
-environment.yml` -- conda's own dependency solver can take a very long
-time (multiple hours isn't unusual) resolving this many pinned
-packages, whereas `conda create -n Pouakai python=3.11` only has to
-solve for a single package. See
-[Alternative: full conda solve](#alternative-full-conda-solve) below
-if you'd rather have conda manage every binary itself anyway.
-
-A few things worth knowing about that sequence:
-
-- **Python >=3.10 is required, not just preferred.** `calibrimbore`
-  requires astroquery's GitHub `main` branch (see below), which has
-  dropped Python <3.10 support -- Python 3.9 will fail during
-  calibration even if the install itself succeeds. 3.11 is the default
-  here; Python 3.9 is no longer a safe substitute despite earlier
-  versions of this README saying otherwise (Python 3.9 also reached
-  end-of-life in October 2025, no more security patches, which was the
-  original reasoning for preferring 3.11 anyway).
-- **`export PYTHONNOUSERSITE=1` before the `pip install` steps** makes
-  Python ignore your personal `~/.local` site-packages entirely for
-  those installs -- keep it set, since it protects against `pip`
-  silently landing packages outside the env on a shared/misconfigured
-  install.
-- **`python -m pip install --upgrade pip setuptools wheel` before `pip
-  install -e .`.** A freshly created env's bundled `pip` can be old
-  enough to predate PEP 660 (editable installs from a
-  `pyproject.toml`-only project, no `setup.py`), which fails with
-  `Directory cannot be installed in editable mode ... editable mode
-  currently requires a setuptools-based build`. Upgrading `pip` first
-  avoids this.
-- `numpy` is deliberately pinned `<1.24` in `pyproject.toml` -- see
-  [solve-field: numpy compatibility](#solve-field-fails-with-attributeerror-module-numpy-has-no-attribute-bool)
-  for why. This works fine on Python 3.11 (numpy added 3.11 support
-  back in the 1.23.x series).
-- **`calibrimbore` is a separate step on purpose.** It isn't on PyPI, so
-  `pip install -e .` alone won't pull it in -- it's an opt-in extra
-  (`pip install -e ".[calibrimbore]"`) rather than a hard dependency, so
-  a plain install doesn't silently reach out to GitHub and build a
-  third-party package. **Run it from inside the repo directory,
-  referencing the local checkout with `.`** -- `pip install
-  "otehiwai-pouakai[calibrimbore]"` (by package name alone) will always
-  fail, since this package isn't published on PyPI. For a reproducible
-  build, pin to a specific commit instead of tracking `main`:
-  ```bash
-  pip install git+https://github.com/CheerfulUser/calibrimbore.git@<commit_hash>
-  ```
-- **`astroquery`, installed from GitHub `main`, not the last PyPI
-  release.** This is required, not just preferred: calibrimbore's own
-  README states it needs astroquery's master branch, and using an
-  older release causes `sauron.estimate_mag` to fail during
-  calibration with cryptic errors (confirmed empirically). For a reproducible
-  build, pin to a specific commit instead of tracking `main`:
-  ```
-  "astroquery @ git+https://github.com/astropy/astroquery.git@<commit_hash>"
-  ```
-
-### Alternative: full conda solve
-
-```bash
-git clone https://github.com/UC-MJO/Otehiwai_Pouakai.git
-cd Otehiwai_Pouakai
-conda env create -f environment.yml
-conda activate Pouakai
-export PYTHONNOUSERSITE=1
-python -m pip install --upgrade pip setuptools wheel
-pip install -e .
-pip install -e ".[calibrimbore]"
-```
-
-Lets conda resolve and install every dependency's binary itself
-(`astroscrappy`, `sep`, `scikit-image`, `pysynphot` all have compiled
-C/Cython extensions), which is more thorough but can mean a very long
-solve time for this many pinned packages -- see
-[Known issues](#known-issues) for ways to speed that up (the
-`libmamba` solver, or `micromamba` as a standalone alternative that
-doesn't touch a shared `base` env at all) if you go this route.
-`environment.yml` pins Python 3.11 (same as the recommended route) --
-Python 3.9 is not a safe substitute here either, since `calibrimbore`
-needs astroquery's `main` branch regardless of which install route you
-use (see the astroquery bullet above).
-
-### Alternative: plain venv + pip (not recommended and ill-tested)
-
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip setuptools wheel
-pip install -e .
-pip install -e ".[calibrimbore]"
-```
-
-You'll additionally need, on the system itself (not pip-installable):
-- A C/C++ compiler (for `astroscrappy`, `sep` if no prebuilt wheel
-  exists for your platform/Python version).
-- `solve-field` (astrometry.net) -- see the next section.
+## Installation
 
 ## solve-field (astrometry.net)
 
-`wcs_compute.py` shells out to astrometry.net's `solve-field` binary
-(as a subprocess, not a Python import) to compute each frame's
-astrometric WCS solution.
+The pipeline invokes `solve-field` as a subprocess. The conda recipe installs
+Astrometry.net 0.97; an existing installation can also be used if it supports NumPy 1.24.4.
 
-This site already has a manually-installed, correctly index-configured
-astrometry.net build at `/usr/local/astrometry/`. `config.py` ensures
-`solve-field` resolves to *that* build every time, ahead of anything
-else that might also be on `PATH`: on import, it **prepends**
-`/usr/local/astrometry/bin` (overridable via the `POUAKAI_ASTROMETRY_BIN`
-environment variable) to `os.environ['PATH']` for the current process
-and anything it spawns as a subprocess -- so this happens automatically,
-without any shell profile edit, and without being able to be silently
-shadowed by another `solve-field` earlier on `PATH`.
+Set the solver location explicitly before importing the pipeline. For the
+complete conda environment:
 
-If you ever call `solve-field` by hand at a terminal, outside this
-package, you'd still want the shell export too:
 ```bash
-export PATH=$PATH:/usr/local/astrometry/bin
+export POUAKAI_ASTROMETRY_BIN="$CONDA_PREFIX/bin"
+command -v solve-field
+solve-field --help
 ```
-since the automatic fix only patches the environment as seen by the
-Python process and its subprocesses.
 
-### `solve-field` fails with `AttributeError: module 'numpy' has no attribute 'bool'`
+For a system/container installation, use its bin directory, or set
+`POUAKAI_ASTROMETRY_BIN=""` to leave your existing `PATH` alone. The current
+configuration otherwise prepends `/usr/local/astrometry/bin`; this behaviour
+will be revised in future configuration work.
 
-This is a separate, unrelated issue from the PATH-shadowing one above --
-it means `solve-field` is now correctly using this site's manual
-astrometry.net build, but that build's own bundled Python helper
-script (`removelines.py`, via `util/fits.py`) references deprecated
-numpy scalar aliases (`np.bool`, `np.int`, etc.) that numpy's own
-1.24.0 release notes confirm were fully removed in that version. This
-is a bug in astrometry.net's own bundled code on disk at
-`/usr/local/astrometry/`, entirely outside this repo.
+**Index files are separate from the software.** Configure
+`$CONDA_PREFIX/etc/astrometry.cfg` for the conda installation (or the config
+used by your external solver), for example:
 
-**The fix used here: pin numpy `<1.24` in this project's own
-environment, not the astrometry.net install.** The traceback for this
-error shows `removelines` running with *this env's* Python/numpy
-(`.../envs/Pouakai/lib/python3.X/site-packages/numpy/...`), not some
-separate system Python -- so an environment we fully control is enough
-to avoid the bug entirely, with no filesystem write access to
-`/usr/local/astrometry/` needed. This is already the default in both
-`pyproject.toml` and `environment.yml` (`numpy<1.24`, alongside Python
-3.9 to match this site's known-working deployment).
+```text
+cpulimit 120
+add_path /absolute/path/to/astrometry-indices
+autoindex
+```
 
-**Alternative, if you want a modern numpy and have write access to
-`/usr/local/astrometry/`:** patch the astrometry.net install directly
-instead of pinning numpy down.
+See the [Astrometry.net instructions](https://astrometry.net/use.html) for choosing and
+configuring indices.
 
 ## pysynphot CDBS reference data
 
@@ -349,7 +209,7 @@ the CLI uses internally for `--glob`) or `glob.glob(...)` directly.
 ### From the command line
 
 Once installed (`pip install -e .` registers the `otehiwai-pouakai`
-console script -- see [Install](#install-recommended)):
+console script -- see [Installation](#installation)):
 
 ```bash
 otehiwai-pouakai --mode modulo --glob "/path/to/archive/20260714*/*.fit" \
@@ -737,111 +597,20 @@ coordinates, and instrumental magnitude, one row per target.
 ## Development
 
 ```bash
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
+python -m build
 ```
 
-## Known issues
+To check the distribution, install the resulting wheel into a fresh environment
+and run `python -m pip check`. Configure data locations before importing the
+pipeline or running it.
 
-- **`pip install -e .` fails with `Directory cannot be installed in
-  editable mode ... editable mode currently requires a setuptools-based
-  build`.** The env's freshly-installed `pip` is too old to support
-  PEP 660 editable installs from a `pyproject.toml`-only project (needs
-  pip >=21.3) -- already why the recommended
-  [Install](#install-recommended) commands run `python -m pip install
-  --upgrade pip setuptools wheel` before `pip install -e .`. If you hit
-  this, run that upgrade and retry. (This also explains a
-  `ModuleNotFoundError: No module named 'otehiwai_pouakai'` on a later
-  run, if `pip install -e .` silently failed this way earlier without
-  you noticing.)
+## Installation troubleshooting
 
-- **`conda env create -f environment.yml` runs for hours without
-  finishing.** Conda's *classic* dependency solver can be extremely
-  slow on a large pinned package set like this one -- this isn't
-  specific to this repo, and the recommended
-  [Install](#install-recommended) path avoids it entirely by not using
-  `environment.yml` for a normal install. If you're deliberately using
-  [Alternative: full conda solve](#alternative-full-conda-solve)
-  anyway, two ways to speed it up:
-  - **`libmamba` solver** (stays within `conda` itself):
-    ```bash
-    conda install -n base -c conda-forge conda-libmamba-solver -y
-    conda config --set solver libmamba
-    ```
-    Note this one-off setup step itself still uses the *classic*
-    solver (libmamba isn't active until after it's installed) -- if
-    your `base` env already has hundreds of packages in it (common on
-    a shared university install), even installing the solver plugin
-    can be slow, for the same underlying reason.
-  - **`micromamba`**, a standalone binary that doesn't touch `base` (or
-    any shared conda install) at all, sidestepping that chicken-and-egg
-    problem entirely:
-    ```bash
-    "${SHELL}" <(curl -L micro.mamba.pm/install.sh)
-    micromamba create -n Pouakai -f environment.yml -c conda-forge -y
-    micromamba activate Pouakai
-    ```
-  Either way, re-run environment creation as normal afterwards -- same
-  file, same result, just resolved in minutes instead of hours. If
-  you're already stuck: `Ctrl+C`, then `conda env remove -n Pouakai`
-  before retrying with the solver switched.
-
-- **`solve-field` fails with `AttributeError: module 'numpy' has no
-  attribute 'bool'`.** Astrometry.net's own bundled Python helper
-  script uses a deprecated numpy scalar alias that numpy 1.24+ removed
-  entirely -- a bug in that external code, not this repo, but one this
-  project works around by default: `numpy<1.24` is pinned in both
-  `pyproject.toml` and `environment.yml`, since the bundled script runs
-  using *this env's* numpy (confirmed from its own traceback), so
-  pinning it here needs no write access to the astrometry.net install
-  itself. If you deliberately use a newer numpy instead, patch that
-  install directly with `./scripts/patch_astrometry_numpy_compat.sh`.
-  See [that section above](#solve-field-fails-with-attributeerror-module-numpy-has-no-attribute-bool)
-  for details.
-
-- **WCS stage fails with `no solution (.new file not produced)` across
-  most/all frames, where it previously worked.** Almost certainly means
-  `solve-field` is resolving to an unconfigured install (e.g.
-  conda-forge's `astrometry` package, which has no index files by
-  default) instead of this site's working manual install -- run
-  `solve-field <any_reduced_frame.fits.gz>` by hand and look for "You
-  must list at least one index in the config file" in the output to
-  confirm. See [solve-field (astrometry.net)](#solve-field-astrometrynet)
-  above; `environment.yml` no longer installs the conda-forge package
-  for exactly this reason, and `config.py` now prepends (not just
-  appends) the known-good bin directory to `PATH` so it can't be
-  shadowed again.
-
-- **`setuptools` must stay below 81.** `pysynphot` imports `pkg_resources`
-  at its own import time; `setuptools>=81` breaks that import with
-  `ModuleNotFoundError: No module named 'pkg_resources'`, confirmed
-  empirically (2026-07) -- `setuptools==83.0.0` fails, `80.10.2` works.
-  This is already pinned (`setuptools<81`) in both `pyproject.toml` and
-  `environment.yml`, so a normal install won't hit it -- only relevant
-  if something else in your environment forces a newer `setuptools`. If
-  you hit the error anyway: `pip install "setuptools<81"`.
-
-- **`pip install "otehiwai-pouakai[...]"` (by package name) will always
-  fail with "No matching distribution found".** This package is not
-  published on PyPI -- it only exists as your local checkout. Install
-  extras with `pip install -e ".[calibrimbore]"` run from inside the
-  repo directory instead (the leading `.` means "this checkout", not "a
-  package named `.`").
-
-- **`pip` reports "Defaulting to user installation because normal
-  site-packages is not writeable" while a conda env is active.** This
-  means `pip`/`python` on your `PATH` are not actually the active
-  conda env's copies (they resolved to a different, non-writable
-  Python install instead -- e.g. a shared system Anaconda base
-  install). Everything will still appear to "work" but silently install
-  into `~/.local` rather than the env, and later imports/extras
-  resolution will behave inconsistently. Check with:
-  ```bash
-  conda activate Pouakai
-  which python; which pip
-  # both paths should contain .../envs/Pouakai/... -- if they instead
-  # point at a shared/system anaconda install, conda isn't being
-  # activated correctly in this shell (common on cluster login nodes
-  # with an old shell or a PATH set before `conda init` runs). Try a
-  # fresh login shell, or use the env's interpreter explicitly:
-  ~/.conda/envs/Pouakai/bin/pip install -e .
-  ```
+- Use Python 3.10 or 3.11; calibrimbore/pysynphot currently prevent Python 3.12+.
+- Keep NumPy at 1.24.4 and runtime setuptools below 81. Calibrimbore supplies the setuptools bound because pysynphot imports `pkg_resources`.
+- pysynphot 2.0.0 falls back to Python for spectral binning: isolated builds can select incompatible NumPy 2, and an upstream import bug also prevents the optional C extension from loading. Enabling it requires compatible build-time NumPy and an import fix. The fallback is slower for binning, but calibrimbore's main synthetic-photometry calculation uses its own NumPy integration.
+- If pip says it is defaulting to a user installation, check `python -c "import sys; print(sys.executable)"` and use the intended environment's `python -m pip`. Do not install into a shared base environment.
+- If conda's classic solver stalls, use the documented `--solver libmamba` option.
+- A solver error about missing indices requires configuring `astrometry.cfg`;
+  reinstalling the Python package will not supply index files.
