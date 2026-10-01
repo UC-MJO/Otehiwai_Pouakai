@@ -1,0 +1,19 @@
+# Python build/install outputs and local environments
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.venv-*/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local editor / OS files
+.idea/
+.vscode/
+.DS_Store
+
+# Local pipeline products
+logs/

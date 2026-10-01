@@ -1,87 +1,15 @@
-# Conda environment for a full-conda-managed install of otehiwai_pouakai.
-#
-# This is the ALTERNATIVE, more thorough install route -- README's
-# recommended default is `conda create -n Pouakai python=3.11` (interpreter
-# only) followed by `pip install -e .`, which is much faster since it
-# skips conda's dependency solver almost entirely. Use this file instead
-# if you specifically want conda managing every binary itself (several
-# dependencies -- astroscrappy, sep, scikit-image, pysynphot -- have
-# compiled C/Cython extensions), and are prepared for a potentially very
-# long solve time on this many pinned packages. See the README's
-# "Known issues" for speeding that solve up (libmamba / micromamba).
-#
-# Usage
-# -----
-#   conda env create -f environment.yml
-#   conda activate Pouakai
-#   export PYTHONNOUSERSITE=1
-#   python -m pip install --upgrade pip setuptools wheel
-#   pip install -e .                                   # the package itself
-#   pip install -e ".[calibrimbore]"                    # calibrimbore, separately (see README)
-#
-# python=3.11 here matches the pip-based route's default (see README).
-# Python 3.9 is NOT a safe alternative for this file despite the
-# comment that used to say so: calibrimbore requires astroquery's
-# GitHub main branch (pyproject.toml pulls it from source for exactly
-# this reason -- see the comment on that dependency there), and
-# astroquery main has dropped Python <3.10 support. Using an older
-# astroquery instead causes calibrimbore's `sauron.estimate_mag` to
-# fail during calibration with cryptic errors (confirmed empirically,
-# 2026-07: `KeyError: 'g_psf'` and a str/int comparison TypeError) --
-# both symptoms of calibrimbore getting back a differently-shaped
-# catalog table than it expects from an older astroquery.
+# This environment includes an Astrometry.net installation.
+# Astrometry indices and CDBS reference data must also be present (see README).
 name: Pouakai
 channels:
   - conda-forge
+  - nodefaults
 dependencies:
   - python=3.11
   - pip
-  # <81: newer setuptools breaks pysynphot's pkg_resources import,
-  # confirmed empirically -- see pyproject.toml's comment on this pin.
+  - git
+  - numpy=1.24.4
+  - astrometry=0.97
   - setuptools<81
-  # <1.24: numpy fully removed np.bool (and sibling aliases) in 1.24.
-  # astrometry.net's bundled `removelines` helper (invoked by
-  # `solve-field`, used by wcs_compute.py) still uses `np.bool` and runs
-  # using THIS env's numpy -- see pyproject.toml's comment on this pin,
-  # and scripts/patch_astrometry_numpy_compat.sh for the alternative
-  # fix if you'd rather use a modern numpy.
-  - numpy<1.24
-  - pandas
-  - scipy
-  - matplotlib
-  - astropy<5.3
-  # NOT astroquery here -- installed from GitHub main via pip below
-  # instead of conda-forge's resolution, since calibrimbore requires
-  # astroquery's master branch specifically (see pyproject.toml's
-  # comment on this dependency).
-  - astroscrappy<1.3
-  - photutils<1.12
-  - scikit-image<0.19
-  - scikit-learn
-  - joblib
-  - tqdm
-  - sep<1.3
-  - pysynphot
-  # astrometry.net's `solve-field`, used by wcs_compute.py, is
-  # deliberately NOT installed via conda here. This site already has a
-  # manually-installed, correctly index-configured build at
-  # /usr/local/astrometry/ (config.py prepends its bin/ directory to
-  # PATH automatically -- see that module). Installing conda-forge's
-  # `astrometry` package here as well previously caused a regression:
-  # it shadowed the working manual install with an unconfigured one
-  # (no index files), which failed with "You must list at least one
-  # index in the config file" -- surfacing in the pipeline as a plain
-  # "no solution (.new file not produced)" wcs-stage failure.
-  #
-  # If you're deploying somewhere WITHOUT an existing manual
-  # astrometry.net install, uncomment the line below -- but you'll then
-  # also need to download astrometry.net index files and register them
-  # in that install's astrometry.cfg yourself (see
-  # http://astrometry.net/use.html); conda-forge's package does not
-  # include them.
-  # - astrometry
   - pip:
-      - -e .
-      # Uncomment to also pull calibrimbore automatically at env-creation
-      # time (otherwise install it afterwards -- see README):
-      # - git+https://github.com/CheerfulUser/calibrimbore.git
+      - .

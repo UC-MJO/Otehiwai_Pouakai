@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,115 +7,47 @@ name = "otehiwai-pouakai"
 version = "2026.1.0"
 description = "End-to-end FLI/B&C astronomical image reduction, astrometric, and photometric calibration pipeline"
 readme = "README.md"
-requires-python = ">=3.10"
-license = { text = "MIT" }
+requires-python = ">=3.10,<3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Zachary Lane" },
 ]
 
-# Everything actually `import`ed by the pipeline modules (background_subtraction,
-# calibration_saurus, core_reduction, cross_process_semaphore, dark_masters,
-# failure_ledger, flat_masters, frame_quality, gaia_query, matau,
-# organise_files, pipeline, provenance, psf_photometry, running_stats,
-# spatial_epsf, wcs_compute, worker_logging) -- pared down from the raw
-# `pip list` dump, which mostly reflected an Anaconda base install (Spyder,
-# Jupyter, conda tooling, etc.) unrelated to this package.
-#
-# Versions below started from this site's known-working Python 3.9.7
-# deployment (see the pip list this was derived from) as a baseline,
-# with two deliberate exceptions since: numpy (see that pin's own
-# comment below for why matching 1.26.4 exactly would silently
-# reintroduce a real bug) and astroquery (must be installed from
-# source -- see that dependency's own comment -- which also means
-# Python must be >=3.10, not 3.9.7; see `requires-python` above).
 dependencies = [
-    # Pinned <1.24, NOT matching this site's numpy 1.26.4 -- np.bool
-    # (and the sibling aliases np.int/np.float/np.object/np.str/
-    # np.complex) were fully REMOVED in numpy 1.24 (confirmed via
-    # numpy's own 1.24.0 release notes). astrometry.net's bundled
-    # `removelines` helper (invoked as a subprocess by `solve-field`,
-    # itself invoked by wcs_compute.py) still uses `np.bool`, and -- per
-    # its own traceback -- runs using THIS env's Python/numpy, not some
-    # separate system one. So pinning numpy here, which we fully
-    # control, is a clean fix requiring no changes to (or write
-    # permission on) the shared astrometry.net install at
-    # /usr/local/astrometry/. See scripts/patch_astrometry_numpy_compat.sh
-    # for the alternative fix (patching that install directly) if you'd
-    # rather use a modern numpy and have write access there.
-    "numpy>=1.22,<1.24",
+    # Using the PR #9 revision until it's upstreamed.
+    "calibrimbore @ git+https://github.com/pattersonjack/calibrimbore.git@a5f77234e84197ca5ce5ecf78bcb8fa32da6fc6c",
+    # Latest NumPy supported by pysynphot, matching calibrimbore.
+    "numpy==1.24.4",
     "pandas>=1.3",
     "scipy>=1.9",
     "matplotlib>=3.6",
-    "astropy>=5.2,<5.3",
-    # Installed from astroquery's GitHub main branch -- REQUIRED, not
-    # just preferred: calibrimbore's own README states it "requires the
-    # master branch of astroquery" for its PS1/catalog query code, and
-    # gives these exact steps. Using a pinned PyPI release instead
-    # (e.g. 0.4.8) causes calibrimbore's `sauron.estimate_mag` to fail
-    # with cryptic errors during calibration -- confirmed empirically
-    # (2026-07): `KeyError: 'g_psf'` and `'<' not supported between
-    # instances of 'str' and 'int'`, both symptoms of calibrimbore
-    # getting back a differently-shaped catalog table than it expects
-    # from an older astroquery. Needs Python >=3.10 (astroquery main
-    # dropped 3.9 support) -- not an issue now that Python 3.11 is the
-    # default; pin to a specific commit instead of `main` for a
-    # reproducible build:
-    #   "astroquery @ git+https://github.com/astropy/astroquery.git@<commit>"
-    "astroquery @ git+https://github.com/astropy/astroquery.git",
-    "astroscrappy>=1.1,<1.3",
-    "photutils>=1.9,<1.12",
-    "scikit-image>=0.18,<0.19",
+    "astropy>=5.2",
+    "astroquery>=0.4.11",
+    "astroscrappy>=1.1",
+    # 2.x changes PSF subtraction defaults and DAOStarFinder fluxes.
+    "photutils>=1.9,<2",
+    # 0.20 adds Python 3.11 wheels; 0.26 deprecates our morphology APIs.
+    "scikit-image>=0.20,<0.26",
     "scikit-learn>=1.0",
     "joblib>=1.1",
     "tqdm>=4.60",
-    "sep>=1.2,<1.3",
-    # calibrimbore (see [project.optional-dependencies].calibrimbore below)
-    # needs pysynphot for its synthetic photometry; declared here directly
-    # too since calibration_saurus.py's `sauron` usage requires it whether
-    # or not calibrimbore was installed via the extra.
-    "pysynphot>=2.0",
-    # pysynphot imports pkg_resources (from setuptools) at its own
-    # import time. Newer Python/conda builds no longer bundle setuptools
-    # by default (unlike older Anaconda base environments, where it was
-    # always present incidentally), so this needs to be listed
-    # explicitly or pysynphot -- and anything that imports it, e.g.
-    # calibrimbore -- fails with "ModuleNotFoundError: No module named
-    # 'pkg_resources'" the moment it's imported.
-    #
-    # Pinned <81: confirmed empirically (2026-07) that setuptools 83.0.0
-    # breaks this same pysynphot import (pkg_resources supped further
-    # than pysynphot expects), while 80.10.2 works. Revisit this pin if
-    # a future pysynphot release stops depending on pkg_resources, or if
-    # setuptools restores/stabilises whatever changed between those two
-    # versions.
-    "setuptools<81",
-    "ipython",
+    # 1.4.0 supplies Python 3.11 wheels compatible with NumPy 1.24.4.
+    "sep>=1.4.0",
 ]
 
 [project.optional-dependencies]
-# calibrimbore is not on PyPI -- it's a git-only dependency (see
-# https://github.com/ZacharyLane1204/calibrimbore). pip can still install it
-# via a direct reference; kept as an extra (rather than a hard dependency)
-# because a plain `pip install otehiwai-pouakai` should not silently reach
-# out to GitHub, clone a repo, and run an unpinned third-party setup.py --
-# that's an explicit opt-in step. Install with:
-#     pip install "otehiwai-pouakai[calibrimbore]"
-# or pin to a specific commit for reproducibility:
-#     pip install otehiwai-pouakai git+https://github.com/ZacharyLane1204/calibrimbore.git@<commit>
-calibrimbore = [
-    "calibrimbore @ git+https://github.com/ZacharyLane1204/calibrimbore.git",
-]
-# Tools only needed to run the test/diagnostic scripts under scripts/,
-# not the installed library itself.
 dev = [
     "pytest>=7.0",
+    "build>=1.0",
 ]
 
 [project.scripts]
 otehiwai-pouakai = "otehiwai_pouakai.pipeline:main"
 
+[tool.setuptools]
+include-package-data = false
+
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-data]
-otehiwai_pouakai = []
+namespaces = false
