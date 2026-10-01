@@ -48,9 +48,7 @@ _PID = os.getpid()
 
 
 def _ledger_path(save_location):
-    log_dir = os.path.join(save_location, 'logs')
-    os.makedirs(log_dir, exist_ok=True)
-    return os.path.join(log_dir, 'failed_files.csv')
+    return os.path.join(save_location, 'logs', 'failed_files.csv')
 
 
 def _lock_path(path):
@@ -262,6 +260,7 @@ def record_failure(save_location, stage, filename, reason):
     always reflects the most recent failure reason.
     """
     path = _ledger_path(save_location)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
 
     with _LedgerLock(path):
         df = _load(path)

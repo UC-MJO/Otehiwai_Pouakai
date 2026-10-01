@@ -55,12 +55,6 @@ logger = logging.getLogger(__name__)
 
 from . import config
 
-# Resolved once at import time from POUAKAI_MASTER_DARK_DIR /
-# POUAKAI_CAL_LIST_DIR (or this site's shared-storage defaults) -- see
-# config.py. Both directories are created on first resolution.
-MASTER_DARK_LOCATION = config.master_dark_dir()
-CAL_LIST_LOCATION = config.cal_list_dir()
-
 
 def normalize_readout(readout):
     """
@@ -164,7 +158,7 @@ def _filter_bc_darks(exp_tol=1, dark_delta_t=1):
         Filtered, clustered dark frame catalog with `cluster` and
         `master_name` columns added (see `_clustering_bc_darks`).
     """
-    initial_df = pd.read_csv(CAL_LIST_LOCATION + 'bc_dark_image_list.csv')
+    initial_df = pd.read_csv(config.catalogue_file('bc_dark_image_list.csv'))
 
     shape_mask = initial_df['shape'].values.astype(int) == 2048
     bad_mask = initial_df['telescope'].values.astype(str) != 'bad'
@@ -286,7 +280,7 @@ def make_master_darks(exp_tol=1, dark_delta_t=1, num_cores=1):
     """
     dark_list = _filter_bc_darks(exp_tol=exp_tol, dark_delta_t=dark_delta_t)
     try:
-        masters = pd.read_csv(CAL_LIST_LOCATION + 'bc_master_dark_list.csv')
+        masters = pd.read_csv(config.cal_list_dir() + 'bc_master_dark_list.csv')
     except Exception:
         masters = pd.DataFrame(columns=['name', 'telescope', 'exptime', 'jd', 'date', 'readout',
                                         'filename', 'nimages', 'shape', 'median', 'note'])
@@ -305,7 +299,7 @@ def make_master_darks(exp_tol=1, dark_delta_t=1, num_cores=1):
     master_names = set(masters.loc[successful_mask, 'name'].values) if len(masters) else set()
 
     dark_list = dark_list.reset_index(drop=True)
-    dark_list.to_csv(CAL_LIST_LOCATION + 'temp_bc_dark_list_filtered.csv', index=False)
+    dark_list.to_csv(config.cal_list_dir() + 'temp_bc_dark_list_filtered.csv', index=False)
 
     new = all_names - master_names
     new = list(new)
@@ -331,7 +325,7 @@ def make_master_darks(exp_tol=1, dark_delta_t=1, num_cores=1):
     masters = masters.reset_index(drop=True)
     print('Done creating master darks, total masters:', len(masters))
 
-    masters.to_csv(CAL_LIST_LOCATION + 'bc_master_dark_list.csv', index=False)
+    masters.to_csv(config.cal_list_dir() + 'bc_master_dark_list.csv', index=False)
 
 def _bc_master_darks(dark_list):
     """
@@ -388,10 +382,11 @@ def _bc_master_darks(dark_list):
 
     hdul = fits.HDUList([phdu, ehdu])
 
-    save_name = (Path(MASTER_DARK_LOCATION) / master_name).with_suffix('.fits')
+    output_dir = config.ensure_output_dir(config.master_dark_dir(), 'POUAKAI_MASTER_DARK_DIR')
+    save_name = (Path(output_dir) / master_name).with_suffix('.fits')
 
     hdul.writeto(save_name, overwrite=True)
-    os.system(f"gzip -f {save_name}")
+    subprocess.run(['gzip', '-f', '--', str(save_name)], check=True)
 
     entry['filename'] = str(save_name.with_suffix('.fits.gz'))
     entry['median'] = float(np.nanmedian(master))
@@ -437,8 +432,9 @@ def get_master_dark(jd, exptime, readout, exp_tol=1, date_tol=3, shape=2048):
         from the science frame, or `('none', -999)` if no suitable master
         dark is found.
     """
+    catalogue = config.catalogue_file('bc_master_dark_list.csv')
     try:
-        darks = pd.read_csv(CAL_LIST_LOCATION + 'bc_master_dark_list.csv')
+        darks = pd.read_csv(catalogue)
     except Exception:
         return 'none', -999
 

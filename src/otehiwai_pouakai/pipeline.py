@@ -25,33 +25,15 @@ in sync with the cron path -- the only difference is how the input file
 list is constructed.
 """
 
-from . import suppress_warnings  # noqa: F401 -- MUST be the first import: registers
-                           # warning filters before anything below has a
-                           # chance to import sklearn (which warns at
-                           # import time, not call time -- see that
-                           # module's docstring for why import order
-                           # matters here).
-
 import argparse
 import logging
+import os
 import sys
 import time
 from glob import glob
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
-from tqdm import tqdm
-from joblib import Parallel, delayed
-
-from .organise_files import organise_fli_files
-from .dark_masters import make_master_darks, get_master_dark
-from .flat_masters import make_master_flats, get_master_flat
-from .wcs_compute import wcs_astrometrynet_local
-from .core_reduction import reduction_script, calibrating_internal
-from .matau import get_file_paths, _deleting_wcs, rename_wcs, _file_creation, update_df
-from .worker_logging import get_current_logging_config
-from . import manifest as _manifest
+from . import config
 
 
 def _resolve_stage_inputs(default_glob, input_files=None, input_dir=None, input_glob=None):
@@ -70,18 +52,15 @@ def _resolve_stage_inputs(default_glob, input_files=None, input_dir=None, input_
     behaviour when nothing extra is passed.
     """
     if input_files is not None:
-        return [str(f) for f in input_files]
+        return [config.absolute_path(f) for f in input_files]
     if input_glob is not None:
-        return sorted(glob(input_glob))
-    if input_dir is not None:
-        return sorted(glob(str(Path(input_dir) / '*.fits.gz')))
-    return sorted(glob(default_glob))
-
-import warnings
-
-warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
-warnings.filterwarnings("ignore", module="sklearn")
-logging.getLogger('astroquery').setLevel(logging.WARNING)
+        pattern = input_glob
+    elif input_dir is not None:
+        input_dir = config.require_input_dir(input_dir, 'stage input_dir')
+        pattern = str(Path(input_dir) / '*.fits.gz')
+    else:
+        pattern = default_glob
+    return sorted(config.absolute_path(f) for f in glob(os.path.expanduser(pattern)))
 
 
 class TqdmLoggingHandler(logging.Handler):
@@ -95,6 +74,8 @@ class TqdmLoggingHandler(logging.Handler):
 
     def emit(self, record):
         try:
+            from tqdm import tqdm
+
             msg = self.format(record)
             tqdm.write(msg)
         except Exception:
@@ -137,7 +118,7 @@ def setup_logging(save_location, level=logging.INFO, console_level=logging.ERROR
         to Python's unconfigured-logger stderr default (fixed at
         WARNING) and bypass this console_level setting entirely.
     """
-    log_dir = Path(save_location) / 'logs'
+    log_dir = Path(config.absolute_path(save_location)) / 'logs'
     log_dir.mkdir(parents=True, exist_ok=True)
 
     log_file = log_dir / f"pouakai_{time.strftime('%Y%m%d_%H%M%S')}.log"
@@ -207,6 +188,16 @@ class Pouakai:
         """
 
         self.logger = logging.getLogger('otehiwai_pouakai.Pouakai')
+        mode = mode.lower()
+        valid_modes = {'modulo', 'red', 'wcs', 'cal'}
+        if mode not in valid_modes:
+            raise ValueError(f'mode must be one of {sorted(valid_modes)}, got {mode!r}')
+        save_location = config.absolute_path(save_location) + '/'
+
+        # Check before archive scans, master building, or reduction can start a
+        # long run.
+        if run and mode in ('modulo', 'wcs'):
+            config.validate_astrometry()
 
         extra_conds = {'dark_exp_tol': dark_exp_tol,
                        'dark_date_tol': dark_date_tol,
@@ -216,12 +207,13 @@ class Pouakai:
                        'flat_delta_t': flat_delta_t,
                        'shape': 2048}
 
-        _file_creation(save_location)
-
         if organise_files:
             self._timed_stage('Organising files', self._run_organise, num_cores)
 
         if make_masters:
+            from .dark_masters import make_master_darks
+            from .flat_masters import make_master_flats
+
             self._timed_stage('Building master darks', make_master_darks,
                                exp_tol=extra_conds['dark_exp_tol'],
                                dark_delta_t=extra_conds['dark_delta_t'],
@@ -232,19 +224,15 @@ class Pouakai:
                                dark_delta_t=extra_conds['dark_date_tol'],
                                num_cores=num_cores)
 
-        updated_sci_list = update_df(files)
-        self.logger.info(f'{len(updated_sci_list)} science frames matched for this run')
-
-        mode = mode.lower()
-        valid_modes = {'modulo', 'red', 'wcs', 'cal'}
-        if mode not in valid_modes:
-            raise ValueError(f'mode must be one of {sorted(valid_modes)}, got {mode!r}')
-
         if not run:
             self.logger.info('run=False; stopping after setup/master-building stages')
             return
 
         if mode in ('modulo', 'red'):
+            from .matau import update_df
+
+            updated_sci_list = update_df(files)
+            self.logger.info(f'{len(updated_sci_list)} science frames matched for this run')
             self._run_reduction(updated_sci_list, save_location, extra_conds, num_cores,
                                  bkg_box_size, bkg_filter_size, subtract_background=subtract_background)
 
@@ -274,10 +262,16 @@ class Pouakai:
         return result
 
     def _run_organise(self, num_cores):
+        from .organise_files import organise_fli_files
+
         organise_fli_files(num_cores=num_cores)
 
     def _run_reduction(self, updated_sci_list, save_location, extra_conds, num_cores,
                         bkg_box_size, bkg_filter_size, subtract_background=True):
+        from joblib import Parallel, delayed
+        from tqdm import tqdm
+        from .core_reduction import reduction_script
+
         self.logger.info(f'--- Stage start: Reduction ({len(updated_sci_list)} frames) ---')
         t0 = time.time()
 
@@ -295,6 +289,12 @@ class Pouakai:
 
     def _run_wcs(self, save_location, wcs_order, num_cores, cpulimit=300, subprocess_timeout=330,
                  input_files=None, input_dir=None, input_glob=None):
+        from joblib import Parallel, delayed
+        from tqdm import tqdm
+        from .wcs_compute import wcs_astrometrynet_local
+        from .matau import _deleting_wcs, rename_wcs
+        from . import manifest as _manifest
+
         red_files = _resolve_stage_inputs(
             save_location + 'red/*.fits.gz',
             input_files=input_files, input_dir=input_dir, input_glob=input_glob,
@@ -340,6 +340,11 @@ class Pouakai:
                           epsf_sampling_candidates=(3, 2),
                           assess_spatial_variation=True,
                           input_files=None, input_dir=None, input_glob=None):
+        from joblib import Parallel, delayed
+        from tqdm import tqdm
+        from .core_reduction import calibrating_internal
+        from .worker_logging import get_current_logging_config
+
         wcs_files = _resolve_stage_inputs(
             save_location + 'wcs/*.fits.gz',
             input_files=input_files, input_dir=input_dir, input_glob=input_glob,
@@ -554,6 +559,8 @@ def main(argv=None):
     logger.info(f'Logging to {log_file}')
 
     if args.glob is not None:
+        from .matau import get_file_paths
+
         files = get_file_paths(args.glob)
         logger.info(f'Resolved {len(files)} files from glob {args.glob!r}')
     elif args.files is not None:

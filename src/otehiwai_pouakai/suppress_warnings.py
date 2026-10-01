@@ -30,9 +30,9 @@ imports, at the top of every entry-point script:
     import otehiwai_pouakai
     ...
 
-For the Pouakai package itself, this is imported as the very first line
-of `otehiwai_pouakai.py`, `run_test_20250914.py`, and
-`calibration_diagnostics.py`.
+Scripts such as `calibration_diagnostics.py` can opt into these filters
+explicitly. Importing the package or displaying CLI help does not
+register them.
 """
 
 import warnings
