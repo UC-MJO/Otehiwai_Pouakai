@@ -1,5 +1,5 @@
 # This environment includes an Astrometry.net installation.
-# Astrometry indices and CDBS reference data must also be present (see README).
+# Configure Astrometry indices and pipeline data locations separately (see README).
 name: Pouakai
 channels:
   - conda-forge

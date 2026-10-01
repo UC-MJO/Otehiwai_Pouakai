@@ -42,11 +42,6 @@ broadband flux does -- see `NarrowbandFilterError` below.
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Imported before calibrimbore/pysynphot below on purpose: config.py
-# sets a PYSYN_CDBS default (os.environ.setdefault) as an import-time
-# side effect, and pysynphot reads PYSYN_CDBS from the environment the
-# moment IT is imported -- so config needs to run first for that
-# default to be in place in time. See config.py's module docstring.
 from . import config
 
 from astropy import units as u
@@ -70,7 +65,6 @@ from scipy.spatial import cKDTree
 from scipy.interpolate import griddata
 from scipy.optimize import minimize
 
-from calibrimbore import sauron, get_skymapper_region, get_ps1_region
 from .gaia_query import get_gaia_region, gaia_cone
 from .psf_photometry import (build_epsf, build_epsf_adaptive, photometry, do_aperture_photometry,
                              compute_aperture_correction, inflate_psf_errors,
@@ -85,15 +79,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-logging.getLogger('astroquery').setLevel(logging.WARNING)
-
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 warnings.filterwarnings('ignore')
-
-# Resolved from POUAKAI_CAL_FILES_DIR (or this site's shared-storage
-# default) -- see config.py. `config` itself was imported at the top of
-# this file, ahead of calibrimbore/pysynphot -- see the comment there.
-cal_files_location = config.cal_files_dir()
 
 # Recognised filter -> calibrimbore band-name mapping. Add an entry here to
 # support calibrating a new filter. Anything not listed (or listed in
@@ -358,6 +345,7 @@ class cal_photom():
         self.median_contam_frac = np.nan
 
         if run:
+            self.cal_files_location = config.validate_calibration_inputs()
             self._load_image()
             self._clean_cosmics()
             self._starfinding()
@@ -1041,7 +1029,17 @@ class cal_photom():
         self.cal_sys = 'skymapper' if (dec < -25).any() else 'ps1'
         fname = '{filt}_{sys}_{model}.npy'.format(filt=self.band, sys=self.cal_sys, model=self.cal_model)
         self.sauron_state_filename = fname
-        self.sauron = sauron(load_state=cal_files_location + fname)
+        states = getattr(self, 'cal_files_location', None)
+        if states is None:
+            states = config.validate_calibration_inputs()
+        state_file = config.require_input_file(states + fname, 'POUAKAI_CAL_FILES_DIR')
+        # Astroquery must create its own logger before we configure it.
+        from astroquery import log as astroquery_log
+
+        astroquery_log.setLevel(logging.WARNING)
+        from calibrimbore import sauron
+
+        self.sauron = sauron(load_state=state_file)
 
     def predict_mags(self):
         """

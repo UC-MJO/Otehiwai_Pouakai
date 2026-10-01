@@ -13,15 +13,16 @@ from .failure_ledger import record_failure, clear_failure, is_known_failure
 from .provenance import build_provenance_dict
 from .worker_logging import configure_process_logging
 from . import manifest as _manifest
+from . import config
 
 import os
 import logging
+import subprocess
 from glob import glob
 from pathlib import Path
 
 from .dark_masters import get_master_dark
 from .flat_masters import get_master_flat
-from .calibration_saurus import cal_photom, NarrowbandFilterError
 from .frame_quality import SepExtractionError
 from .psf_photometry import PSFGroupingError
 
@@ -73,7 +74,7 @@ def reduction_script(updated_sci_list, i, save_location,
     new_name = new_name.replace(' ', '_')
     new_name = new_name + '_reduced'
 
-    save_name = Path(save_location + 'red/') / new_name
+    save_name = Path(save_location) / 'red' / new_name
     save_name = save_name.with_suffix('.fits')
 
     # Skip if this frame has already been reduced, so repeated (e.g.
@@ -188,9 +189,10 @@ def reduction_script(updated_sci_list, i, save_location,
     phdu = fits.PrimaryHDU(data=reduced_data, header=sci_header)
     hdul = fits.HDUList([phdu])
 
+    config.ensure_output_dir(save_name.parent, 'reduction output')
     try:
         hdul.writeto(save_name, overwrite=True)
-        os.system(f"gzip -f {save_name}")
+        subprocess.run(['gzip', '-f', '--', str(save_name)], check=True)
         clear_failure(save_location, _STAGE_REDUCTION, sci_file)
         _manifest.record_stage(save_location, _STAGE_REDUCTION, 'success',
                                 input_path=sci_file, output_path=str(save_name) + '.gz')
@@ -311,24 +313,28 @@ def calibrating_internal(filename, save_location, skip_known_failures=True,
             logger.info(f'{filename}: skipping (known failure: {known_reason})')
             return None
 
+    infile = Path(filename)
+    cal_outdir = Path(save_location) / 'cal'
+    phot_outdir = Path(save_location) / 'phot_table'
+    zp_outdir = Path(save_location) / 'zp'
+
+    cal_new_name = infile.name.replace('_wcs', '_cal').replace('.fits.gz', '.fits')
+    phot_new_name = infile.name.replace('_wcs', '_phottable').replace('.fits.gz', '.csv')
+    zp_new_name = infile.name.replace('_wcs', '_zpsurface').replace('.fits.gz', '.npy')
+    cal_new_path = cal_outdir / cal_new_name
+    phot_new_path = phot_outdir / phot_new_name
+    zp_new_path = zp_outdir / zp_new_name
+
+    if os.path.exists(str(cal_new_path) + '.gz'):
+        return None
+
+    config.validate_calibration_inputs()
+    from .calibration_saurus import cal_photom, NarrowbandFilterError
+
     try:
-        infile = Path(filename)
-        cal_outdir = Path(save_location) / 'cal'
-        phot_outdir = Path(save_location) / 'phot_table'
-        zp_outdir = Path(save_location) / 'zp'
         cal_outdir.mkdir(parents=True, exist_ok=True)
         phot_outdir.mkdir(parents=True, exist_ok=True)
         zp_outdir.mkdir(parents=True, exist_ok=True)
-
-        cal_new_name = infile.name.replace('_wcs', '_cal').replace('.fits.gz', '.fits')
-        phot_new_name = infile.name.replace('_wcs', '_phottable').replace('.fits.gz', '.csv')
-        zp_new_name = infile.name.replace('_wcs', '_zpsurface').replace('.fits.gz', '.npy')
-        cal_new_path = cal_outdir / cal_new_name
-        phot_new_path = phot_outdir / phot_new_name
-        zp_new_path = zp_outdir / zp_new_name
-
-        if os.path.exists(str(cal_new_path) + '.gz'):
-            return None
 
         cally = cal_photom(filename, match_tol_px=match_tol_px, isolation_radius_px=isolation_radius_px,
                             max_contamination_frac=max_contamination_frac,
@@ -513,7 +519,7 @@ def calibrating_internal(filename, save_location, skip_known_failures=True,
 
         hdu = fits.PrimaryHDU(data=data, header=header)
         hdu.writeto(cal_new_path, overwrite=True)
-        os.system(f"gzip -f {cal_new_path}")
+        subprocess.run(['gzip', '-f', '--', str(cal_new_path)], check=True)
         clear_failure(save_location, _STAGE_CALIBRATION, filename)
         _manifest.record_stage(save_location, _STAGE_CALIBRATION, 'success',
                                 input_path=filename, output_path=str(cal_new_path) + '.gz')

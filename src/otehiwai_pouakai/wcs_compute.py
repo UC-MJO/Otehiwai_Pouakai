@@ -23,17 +23,12 @@ from pathlib import Path
 
 from astropy.io import fits
 
-from . import config  # noqa: F401 -- import side effect: ensures
-# solve-field's directory is on PATH even if this module is imported
-# before anything else in the package happens to import config first
-# (see config._ensure_astrometry_on_path's docstring).
+from . import config
 from .failure_ledger import record_failure, clear_failure, is_known_failure
 
 logger = logging.getLogger(__name__)
 
 _STAGE_WCS = 'wcs'
-
-tmp = os.environ.get('TMPDIR', '/tmp')
 
 # Header keys tried, in order, for a position hint. Different telescope
 # control software uses different conventions; the common ones are tried
@@ -168,9 +163,7 @@ def wcs_astrometrynet_local(savepath, filename, order=3,
         {'success': bool, 'reason': str, 'new_file': str or None,
          'n_match': int or None}
     """
-    true_save_path = savepath + 'wcs/'
-    os.makedirs(true_save_path, exist_ok=True)
-    true_save_path = str(Path(true_save_path))
+    true_save_path = str(Path(savepath) / 'wcs')
 
     base_name = filename.split('/')[-1].split('.fits.gz')[0] + '_wcs'
     new_file = str(Path(true_save_path) / (base_name + '.new'))
@@ -191,13 +184,16 @@ def wcs_astrometrynet_local(savepath, filename, order=3,
             logger.info(f'{filename}: skipping (known failure: {known_reason})')
             return {'success': False, 'reason': f'skipped (known failure: {known_reason})', 'new_file': None, 'n_match': None}
 
+    executable, child_env = config.astrometry_command()
+    os.makedirs(true_save_path, exist_ok=True)
+
     cmd = [
-        'solve-field',
+        executable,
         '--no-plots',
         '--scale-units', 'arcminwidth',
         '--scale-low', '24',
         '--scale-high', '26',
-        '--temp-dir', tmp,
+        '--temp-dir', os.environ.get('TMPDIR', '/tmp'),
         '-o', base_name,
         '--dir', true_save_path,
         '--tweak-order', str(order),
@@ -225,7 +221,7 @@ def wcs_astrometrynet_local(savepath, filename, order=3,
     try:
         proc = subprocess.run(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            timeout=subprocess_timeout, text=True,
+            timeout=subprocess_timeout, text=True, env=child_env,
         )
     except subprocess.TimeoutExpired:
         reason = 'timeout'
@@ -262,16 +258,16 @@ def wcs_astrometrynet_local_legacy(savepath, filename, order=3):
     Not called anywhere in the pipeline -- use `wcs_astrometrynet_local`
     instead.
     """
-    true_save_path = savepath + 'wcs/'
+    executable, child_env = config.astrometry_command()
+    true_save_path = str(Path(savepath) / 'wcs')
     os.makedirs(true_save_path, exist_ok=True)
     true_save_path = str(Path(true_save_path))
     base_name = filename.split('/')[-1].split('.fits.gz')[0] + '_wcs'
 
-    astrom_call = (
-        f"solve-field --no-plots --scale-units arcminwidth --scale-low 24 "
-        f"--scale-high 26 --temp-dir {tmp} -O -o {base_name} --dir {true_save_path} "
-        f"--tweak-order {order} {filename}"
-    )
-
-    with subprocess.Popen(astrom_call, stdout=subprocess.PIPE, shell=True) as proc:
+    cmd = [executable, '--no-plots', '--scale-units', 'arcminwidth',
+           '--scale-low', '24', '--scale-high', '26',
+           '--temp-dir', os.environ.get('TMPDIR', '/tmp'), '-O',
+           '-o', base_name, '--dir', true_save_path,
+           '--tweak-order', str(order), filename]
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, env=child_env) as proc:
         stdout, _ = proc.communicate()

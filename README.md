@@ -6,12 +6,10 @@ subtraction, ePSF-based photometry, Gaia/`calibrimbore`-based zeropoint
 calibration (accounting for atmospheric corrections), and cron-friendly orchestration with persistent
 failure-tracking so re-runs don't re-attempt known-bad frames.
 
-This package was designed for and is deployed on the **University of
-Canterbury's Whetu server** -- the shared-storage paths documented below
-(`/home/phys/astro8/...`, `/home/phys/astronomy/...`) are that
-deployment's specific layout. If you're installing this elsewhere, the
-same paths are all overridable via environment variables (see
+This package was developed for the University of Canterbury's Whetu server.
+Configure data locations for your deployment using environment variables (see
 [Configuring pipeline data locations](#configuring-pipeline-data-locations)).
+Importing the package and running `otehiwai-pouakai --help` require no data setup.
 
 ## Quickstart
 
@@ -55,6 +53,17 @@ conda activate Pouakai
 
 Before processing observations, configure [pipeline data locations](#configuring-pipeline-data-locations) and [Astrometry.net indices](#solve-field-astrometrynet). See the [CDBS reference data notes](#pysynphot-cdbs-reference-data) for workflows that require additional pysynphot data.
 
+### 4. Run the end-to-end example (on Whetu)
+
+First adjust `SAVE_LOCATION`, `TEST_NIGHT_GLOB` and `NUM_CORES` in `scripts/run_test_20250914.py`, then run:
+
+```bash
+source scripts/whetu_env.sh
+python scripts/run_test_20250914.py
+```
+
+See [Running the full pipeline](#running-the-full-pipeline) to adapt the script to your needs.
+
 ## Repository layout
 
 ```
@@ -78,6 +87,7 @@ Otehiwai_Pouakai/
     ├── calibration_diagnostics.py
     ├── diagnose_calibration_tolerances.py
     ├── open_image.py
+    ├── whetu_env.sh         # source to select the existing Whetu data paths
     └── setup_cdbs_data.sh
 ```
 
@@ -94,19 +104,17 @@ see the comments in each) rather than installed as part of the package.
 The pipeline invokes `solve-field` as a subprocess. The conda recipe installs
 Astrometry.net 0.97; an existing installation can also be used if it supports NumPy 1.24.4.
 
-Set the solver location explicitly before importing the pipeline. For the
-complete conda environment:
+The pipeline uses `solve-field` from your current `PATH`, including an active
+conda environment. To select a different installation explicitly:
 
 ```bash
-export POUAKAI_ASTROMETRY_BIN="$CONDA_PREFIX/bin"
-command -v solve-field
-solve-field --help
+export POUAKAI_ASTROMETRY_BIN=/path/to/astrometry/bin
 ```
 
-For a system/container installation, use its bin directory, or set
-`POUAKAI_ASTROMETRY_BIN=""` to leave your existing `PATH` alone. The current
-configuration otherwise prepends `/usr/local/astrometry/bin`; this behaviour
-will be revised in future configuration work.
+That directory must contain an executable `solve-field`. It is added to the
+solver subprocess's `PATH` so its helper programs can be found; the pipeline
+leaves the parent process's `PATH` unchanged. Leave the variable unset or empty
+to use your current `PATH`.
 
 **Index files are separate from the software.** Configure
 `$CONDA_PREFIX/etc/astrometry.cfg` for the conda installation (or the config
@@ -123,62 +131,61 @@ configuring indices.
 
 ## pysynphot CDBS reference data
 
-`calibration_saurus.py` calls into `calibrimbore`'s `sauron`, which
-
-depends on `pysynphot`, which in turn needs the CDBS reference-file
-tree pointed to by the standard `PYSYN_CDBS` environment variable. The
-default for this deployment is:
-
-```bash
-export PYSYN_CDBS=/home/phys/astronomy/Pysynphot_Files/
-```
-
-`otehiwai_pouakai.config` also sets this exact path as a Python-level
-default (`os.environ.setdefault('PYSYN_CDBS', ...)`) the moment the
-package is imported, so it works even if you forget the shell export --
-but add the export to a shell profile anyway if anything outside this
-package (or outside Python entirely) also needs `PYSYN_CDBS` set.
-
-If you'd rather keep your own personal copy of the CDBS files instead
-of using the shared one above (e.g. for isolated testing), point
-`PYSYN_CDBS` at that folder instead -- any directory with the expected
-CDBS layout works, this doesn't have to be the shared location:
+Calibrimbore uses pysynphot, but its normal saved-state calibration workflow
+uses bundled spectra and passbands and does not require the full CDBS tree.
+For workflows that use additional STScI reference data, set the standard
+`PYSYN_CDBS` variable **before importing calibrimbore or pysynphot**:
 
 ```bash
-export PYSYN_CDBS=/home/<you>/Pysynphot_Files/
+export PYSYN_CDBS=/absolute/path/to/cdbs
 ```
 
-`scripts/setup_cdbs_data.sh <source> [dest]` is available if you ever
-need to relocate an existing CDBS tree to a new location and want the
-matching `export` line printed for you.
+Pouakai does not set this variable automatically or create the directory. If
+set, it must point to an existing, readable directory when calibration starts.
+
+If unset, pysynphot attempts remote reference-table lookups during import.
+Failed lookups can cause startup delays and warnings, but do not prevent
+saved-state calibration. The Whetu setup script points to the existing CDBS
+directory to avoid these remote lookups.
+
+`scripts/setup_cdbs_data.sh <source> [dest]` can copy an existing CDBS tree and
+print the corresponding export.
 
 ## Configuring pipeline data locations
 
-Every filesystem location the pipeline reads from or writes to (raw
-archive root, catalog CSVs, master dark/flat directories, `calibrimbore`
-state files) is centralised in `src/otehiwai_pouakai/config.py`, with
-defaults pointed at this deployment's actual shared storage:
+Set `POUAKAI_HOME` to choose a root for catalogues, calibration states and master
+frames. It defaults to `pouakai_data/` in the **current working directory**: the
+directory you run Python from, even if the calling script lives elsewhere.
+This keeps generated catalogues and masters alongside your project for inspection.
+The repository ignores `pouakai_data/`; add the same entry to your own project's
+`.gitignore` if needed. Individual variables override the root:
 
-| Variable                    | Default (this site)                                | Used for |
-|------------------------------|-----------------------------------------------------|----------|
-| `POUAKAI_RAW_ARCHIVE_DIR`    | `/home/phys/astro8/MJArchive/octans/`                | root of the raw FITS archive `organise_files.py` scans |
-| `POUAKAI_CAL_LIST_DIR`       | `/home/phys/astronomy/Pouakai_cal_Lists/`            | master image/dark/flat/science catalog CSVs |
-| `POUAKAI_CAL_FILES_DIR`      | `/home/phys/astronomy/Pouakai_cal_Files/`            | `calibrimbore` sauron state files |
-| `POUAKAI_MASTER_DARK_DIR`    | `/home/phys/astronomy/Pouakai_Masters/Master_Darks/` | combined master dark frames |
-| `POUAKAI_MASTER_FLAT_DIR`    | `/home/phys/astronomy/Pouakai_Masters/Master_Flats/` | combined master flat frames |
-| `PYSYN_CDBS`                 | `/home/phys/astronomy/Pysynphot_Files/`              | pysynphot/calibrimbore reference data, see above |
+| Variable | Default | Used for |
+|----------|---------|----------|
+| `POUAKAI_RAW_ARCHIVE_DIR` | None; required for archive discovery | Existing raw FITS archive to scan |
+| `POUAKAI_CAL_LIST_DIR` | `$POUAKAI_HOME/cal_lists` | Image and master catalogue CSVs |
+| `POUAKAI_CAL_FILES_DIR` | `$POUAKAI_HOME/cal_files` | Existing calibrimbore sauron state files |
+| `POUAKAI_MASTER_DARK_DIR` | `$POUAKAI_HOME/masters/darks` | Master dark outputs |
+| `POUAKAI_MASTER_FLAT_DIR` | `$POUAKAI_HOME/masters/flats` | Master flat outputs |
+| `POUAKAI_ASTROMETRY_BIN` | Use `PATH` | Optional Astrometry.net bin directory |
+| `PYSYN_CDBS` | Unset | Optional external pysynphot reference data |
 
-Every variable above is optional at this site -- the defaults already
-point at the shared folders in use here. Set the matching environment
-variable only to override one for a different run or a different
-deployment entirely (e.g. testing on a laptop with a local archive
-copy). `POUAKAI_HOME` is a separate, lower-priority fallback used only
-if you strip out a default above without setting its environment
-variable; see `config.py`'s docstring if you need it.
+For example:
 
-These are **data** locations, unrelated to wherever you `git clone`d or
-`pip install`ed the package itself -- there's no dependency between the
-two.
+```bash
+export POUAKAI_HOME=/path/to/pouakai-data
+export POUAKAI_RAW_ARCHIVE_DIR=/path/to/existing/raw-archive
+export POUAKAI_CAL_FILES_DIR=/path/to/existing/calibrimbore-states
+```
+
+Archive discovery requires an existing, readable input directory (`fli_dir=...` overrides the archive variable). Catalogue readers require existing CSV files; calibration requires existing state files.
+
+On Whetu, source the deployment settings after activating your Python environment
+and before starting the pipeline:
+
+```bash
+source /path/to/Otehiwai_Pouakai/scripts/whetu_env.sh
+```
 
 ## Running the full pipeline
 
@@ -602,8 +609,14 @@ python -m build
 ```
 
 To check the distribution, install the resulting wheel into a fresh environment
-and run `python -m pip check`. Configure data locations before importing the
-pipeline or running it.
+and run `python -m pip check`. Configure data locations before processing data.
+
+Tests use temporary directories and synthetic inputs:
+
+```bash
+python -m pip install -e '.[dev]'
+python -m pytest
+```
 
 ## Installation troubleshooting
 
@@ -612,5 +625,6 @@ pipeline or running it.
 - pysynphot 2.0.0 falls back to Python for spectral binning: isolated builds can select incompatible NumPy 2, and an upstream import bug also prevents the optional C extension from loading. Enabling it requires compatible build-time NumPy and an import fix. The fallback is slower for binning, but calibrimbore's main synthetic-photometry calculation uses its own NumPy integration.
 - If pip says it is defaulting to a user installation, check `python -c "import sys; print(sys.executable)"` and use the intended environment's `python -m pip`. Do not install into a shared base environment.
 - If conda's classic solver stalls, use the documented `--solver libmamba` option.
+- A `ConfigurationError` names the missing setting or input path. Check the relevant environment variable.
 - A solver error about missing indices requires configuring `astrometry.cfg`;
   reinstalling the Python package will not supply index files.

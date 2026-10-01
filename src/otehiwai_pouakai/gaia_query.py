@@ -28,9 +28,6 @@ from astropy.coordinates import SkyCoord, Angle
 from astropy import units as u
 from astropy import log
 
-from astroquery.vizier import Vizier
-from astroquery.gaia import Gaia
-from astroquery.utils.tap.core import TapPlus
 
 import os
 import time
@@ -41,7 +38,6 @@ import logging
 
 from .cross_process_semaphore import CrossProcessSemaphore
 
-logging.getLogger('astroquery').setLevel(logging.WARNING)
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API", category=UserWarning)
 
@@ -51,8 +47,8 @@ logger = logging.getLogger(__name__)
 # Both can be overridden per-call; these defaults exist so caching and
 # rate limiting are active out of the box without every caller needing
 # to remember to pass them.
-_DEFAULT_CACHE_DIR = os.path.expanduser('~/.cache/pouakai_gaia_cache/')
-_DEFAULT_SEMAPHORE_DIR = os.path.expanduser('~/.cache/pouakai_gaia_semaphore/')
+_DEFAULT_CACHE_DIR = '~/.cache/pouakai_gaia_cache/'
+_DEFAULT_SEMAPHORE_DIR = '~/.cache/pouakai_gaia_semaphore/'
 
 # Mirrors tried in order after the primary ESA archive. ARI Heidelberg is
 # a long-standing, documented alternate Gaia TAP mirror (see e.g.
@@ -68,7 +64,7 @@ _GAIA_MIRRORS = [
 # Keeping this bounded avoids overwhelming the archive when many workers
 # run in parallel. Override via the POUAKAI_GAIA_MAX_CONCURRENT
 # environment variable without editing source.
-_DEFAULT_MAX_CONCURRENT_QUERIES = int(os.environ.get('POUAKAI_GAIA_MAX_CONCURRENT', '4'))
+_DEFAULT_MAX_CONCURRENT_QUERIES = object()
 
 
 def _cache_key(ra, dec, radius_arcmin, magnitude_limit):
@@ -121,6 +117,11 @@ def get_gaia_region(ra, dec, size=0.4, magnitude_limit=21):
     as a standalone utility and is not currently called elsewhere in the
     pipeline.
     """
+    from astroquery import log as astroquery_log
+    from astroquery.vizier import Vizier
+
+    astroquery_log.setLevel(logging.WARNING)
+
     c1 = SkyCoord(ra, dec, unit='deg')
     Vizier.ROW_LIMIT = -1
 
@@ -143,10 +144,17 @@ def _query_mirror(mirror_url, coord, radius_arcmin):
     Run a single cone-search attempt against either the default GaiaClass
     (mirror_url=None) or an explicit alternate TAP server URL.
     """
+    from astroquery import log as astroquery_log
+
+    astroquery_log.setLevel(logging.WARNING)
     if mirror_url is None:
+        from astroquery.gaia import Gaia
+
         Gaia.ROW_LIMIT = 1_000_000
         job = Gaia.cone_search_async(coord, radius=u.Quantity(radius_arcmin, u.arcmin))
         return job.get_results().to_pandas()
+
+    from astroquery.utils.tap.core import TapPlus
 
     tap = TapPlus(url=mirror_url)
     ra_deg, dec_deg = coord.ra.deg, coord.dec.deg
@@ -219,7 +227,11 @@ def gaia_cone(ra, dec, radius_arcmin, magnitude_limit=21, max_retries=5,
     -------
     gaia_sources : pandas.DataFrame
     """
+    if max_concurrent_queries is _DEFAULT_MAX_CONCURRENT_QUERIES:
+        max_concurrent_queries = int(os.environ.get('POUAKAI_GAIA_MAX_CONCURRENT', '4'))
+    semaphore_dir = os.path.expanduser(semaphore_dir)
     if cache_dir is not None:
+        cache_dir = os.path.expanduser(cache_dir)
         os.makedirs(cache_dir, exist_ok=True)
         key = _cache_key(ra, dec, radius_arcmin, magnitude_limit)
         cache_path = os.path.join(cache_dir, f'gaia_{key}.csv')

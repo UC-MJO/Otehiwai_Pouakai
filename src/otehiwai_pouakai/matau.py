@@ -11,6 +11,7 @@ import pandas as pd
 from astropy.time import Time
 
 import os
+import subprocess
 from glob import glob
 from pathlib import Path
 import logging
@@ -80,7 +81,7 @@ def rename_wcs(filename_or_result):
         new_path = old_path.with_name(new_name).with_suffix('.fits')
 
         old_path.rename(new_path)
-        os.system(f"gzip -f {new_path}")
+        subprocess.run(['gzip', '-f', '--', str(new_path)], check=True)
 
     except Exception as e:
         logger.warning(f'{filename}: failed to rename/gzip solved WCS file: {e}')
@@ -199,12 +200,12 @@ def get_file_paths(file_path):
         Matching file paths, excluding likely calibration frames.
     """
     file_path_list = []
-    for filename in glob(file_path):
+    for filename in glob(os.path.expanduser(file_path)):
         lower = str(filename).lower()
         if 'dark' in lower or 'flat' in lower or 'bias' in lower:
             continue
         if os.path.isfile(filename):
-            file_path_list.append(str(filename))
+            file_path_list.append(config.absolute_path(filename))
     return file_path_list
 
 def update_df(files):
@@ -221,9 +222,10 @@ def update_df(files):
 
     Parameters
     ----------
-    files : list of str
-        Filenames (matching the `filename` column of the master science
-        image list) to include in the returned dataframe.
+    files : list of str or Path
+        Filenames to select from the master science image list. Relative
+        paths are resolved against the current working directory; the
+        catalogue stores absolute paths.
 
     Returns
     -------
@@ -231,7 +233,7 @@ def update_df(files):
         Rows of the master science image list matching `files`, with
         `jd_utc`, `running_number`, and `master_name` columns added.
     """
-    all_sci_df = pd.read_csv(config.cal_list_dir() + 'bc_science_image_list.csv')
+    all_sci_df = pd.read_csv(config.catalogue_file('bc_science_image_list.csv'))
 
     df = all_sci_df.copy()
 
@@ -241,7 +243,8 @@ def update_df(files):
     df['running_number'] = (df.groupby(['object', 'jd_utc', 'band']).cumcount().add(1).astype(str).str.zfill(4))
     df['master_name'] = (df['object'].astype(str) + '_' + df['jd_utc'] + '_' + df['band'].astype(str) + '_' + df['running_number'])
 
-    updated_sci_list = df[df['filename'].isin(files)].copy()
+    requested_files = {config.absolute_path(filename) for filename in files}
+    updated_sci_list = df[df['filename'].isin(requested_files)].copy()
     updated_sci_list = updated_sci_list.reset_index(drop=True)
 
     return updated_sci_list

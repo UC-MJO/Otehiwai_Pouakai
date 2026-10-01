@@ -49,11 +49,6 @@ logger = logging.getLogger(__name__)
 
 from . import config
 
-# See dark_masters.py / config.py -- same POUAKAI_* environment
-# variables control where these live.
-MASTER_FLAT_LOCATION = config.master_flat_dir()
-CAL_LIST_LOCATION = config.cal_list_dir()
-
 
 def assign_time_blocks(df, delta_t):
     """
@@ -117,7 +112,7 @@ def _filter_bc_flats(exp_tol=1, flat_delta_t=30, dark_delta_t=1):
         Filtered, clustered flat frame catalog with `cluster` and
         `master_name` columns added (see `_clustering_bc_flats`).
     """
-    initial_df = pd.read_csv(CAL_LIST_LOCATION + 'bc_flat_image_list.csv')
+    initial_df = pd.read_csv(config.catalogue_file('bc_flat_image_list.csv'))
 
     shape_mask = initial_df['shape'].values.astype(int) == 2048
     upper_mask = initial_df['median'].astype(float) >= 10000
@@ -278,7 +273,7 @@ def make_master_flats(exp_tol=1, flat_delta_t=30, dark_delta_t=1, num_cores=1):
     """
     flat_list = _filter_bc_flats(exp_tol=exp_tol, flat_delta_t=flat_delta_t, dark_delta_t=dark_delta_t)
     try:
-        masters = pd.read_csv(CAL_LIST_LOCATION + 'bc_master_flat_list.csv')
+        masters = pd.read_csv(config.cal_list_dir() + 'bc_master_flat_list.csv')
     except Exception:
         masters = pd.DataFrame(columns=['name', 'telescope', 'exptime', 'jd', 'date', 'band',
                                          'readout', 'filename', 'nimages', 'shape', 'median'])
@@ -287,7 +282,7 @@ def make_master_flats(exp_tol=1, flat_delta_t=30, dark_delta_t=1, num_cores=1):
     master_names = set(masters['name'].values) if len(masters) else set()
 
     flat_list = flat_list.reset_index(drop=True)
-    flat_list.to_csv(CAL_LIST_LOCATION + 'temp_bc_flat_list_filtered.csv', index=False)
+    flat_list.to_csv(config.cal_list_dir() + 'temp_bc_flat_list_filtered.csv', index=False)
 
     new = all_names - master_names
     new = list(new)
@@ -314,7 +309,7 @@ def make_master_flats(exp_tol=1, flat_delta_t=30, dark_delta_t=1, num_cores=1):
     masters = masters.reset_index(drop=True)
     print('Done creating master flats, total masters:', len(masters))
 
-    masters.to_csv(CAL_LIST_LOCATION + 'bc_master_flat_list.csv', index=False)
+    masters.to_csv(config.cal_list_dir() + 'bc_master_flat_list.csv', index=False)
 
 
 def _bc_master_flats(flat_list):
@@ -367,12 +362,13 @@ def _bc_master_flats(flat_list):
 
         hdul = fits.HDUList([phdu, ehdu])
 
-        save_name = Path(MASTER_FLAT_LOCATION) / master_name
+        output_dir = config.ensure_output_dir(config.master_flat_dir(), 'POUAKAI_MASTER_FLAT_DIR')
+        save_name = Path(output_dir) / master_name
         save_name = save_name.with_suffix('.fits')
 
         hdul.writeto(save_name, overwrite=True)
 
-        os.system(f"gzip -f {save_name}")
+        subprocess.run(['gzip', '-f', '--', str(save_name)], check=True)
 
         entry['name'] = master_name
         entry['telescope'] = 'B&C'
@@ -435,8 +431,9 @@ def get_master_flat(jd, readout, band, date_tol=30, shape=2048):
     normalized before combination, so their individual exposure times
     don't need to match the science frame's.
     """
+    catalogue = config.catalogue_file('bc_master_flat_list.csv')
     try:
-        flats = pd.read_csv(CAL_LIST_LOCATION + 'bc_master_flat_list.csv')
+        flats = pd.read_csv(catalogue)
     except Exception:
         return 'none', -999
 

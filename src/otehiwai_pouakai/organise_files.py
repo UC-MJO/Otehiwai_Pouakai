@@ -27,12 +27,6 @@ logger = logging.getLogger(__name__)
 
 from . import config
 
-# FLI_DIR has no safe default (see config.raw_archive_dir docstring) --
-# set POUAKAI_RAW_ARCHIVE_DIR, or pass fli_dir= explicitly to
-# organise_fli_files(). CAL_LIST_PATH follows POUAKAI_CAL_LIST_DIR.
-FLI_DIR = config.raw_archive_dir()
-CAL_LIST_PATH = config.cal_list_dir()
-
 _REQUIRED_KEYS = ['IMAGETYP', 'EXPTIME', 'JD', 'DATE-OBS', 'READOUTM']
 
 def open_and_inspect(file):
@@ -106,8 +100,8 @@ def open_and_inspect(file):
 
 class organise_fli_files():
     """
-    Discover new FITS files under `FLI_DIR`, inspect and classify them,
-    and (re)write the master image catalog CSVs under `CAL_LIST_PATH`.
+    Discover new FITS files under the configured archive, inspect and classify
+    them, and (re)write the master image catalog CSVs.
 
     Running this repeatedly (e.g. as a nightly cron job) is cheap: only
     files not already present in the catalog by filename are inspected
@@ -123,11 +117,9 @@ class organise_fli_files():
             parallel threads.
         fli_dir : str or None
             Root of the raw FITS archive to walk recursively for new
-            files. Defaults to the module-level `FLI_DIR` (itself
-            resolved from the `POUAKAI_RAW_ARCHIVE_DIR` environment
-            variable -- see config.py) if not given here. Raises
-            `ValueError` if neither is set, rather than silently
-            scanning nothing/the wrong directory.
+            files. Defaults to `POUAKAI_RAW_ARCHIVE_DIR` at construction time.
+            Must be an existing, readable directory. Raises
+            `config.ConfigurationError` if missing or invalid.
         retry_bad : bool
             A file that fails inspection is recorded with
             `telescope='bad'` in `bc_all_image_list.csv`; since its
@@ -142,13 +134,9 @@ class organise_fli_files():
         """
         self.num_cores = num_cores
 
-        resolved_fli_dir = fli_dir or FLI_DIR
-        if not resolved_fli_dir:
-            raise ValueError(
-                'No raw archive directory to scan: pass fli_dir=... explicitly, '
-                'or set the POUAKAI_RAW_ARCHIVE_DIR environment variable.'
-            )
-        root = Path(resolved_fli_dir)
+        resolved_fli_dir = config.raw_archive_dir() if fli_dir is None else fli_dir
+        root = Path(config.require_input_dir(resolved_fli_dir, 'POUAKAI_RAW_ARCHIVE_DIR / fli_dir'))
+        self.cal_list_path = config.cal_list_dir()
 
         files = list(root.rglob("*.fit*"))
         self.files = files
@@ -171,10 +159,10 @@ class organise_fli_files():
         self.process_files(updated_files)
 
         print(f"Total of {len(self.all_image_df)} files in the database")
-        self.all_image_df.to_csv(CAL_LIST_PATH + 'bc_all_image_list.csv', index=False)
+        self.all_image_df.to_csv(self.cal_list_path + 'bc_all_image_list.csv', index=False)
 
         for saving in ['dark', 'science', 'flat']:
-            self.all_image_df[self.all_image_df['imagetype'] == saving].to_csv(CAL_LIST_PATH + f'bc_{saving}_image_list.csv', index=False)
+            self.all_image_df[self.all_image_df['imagetype'] == saving].to_csv(self.cal_list_path + f'bc_{saving}_image_list.csv', index=False)
 
     def _loading_dataframes(self):
         """
@@ -182,15 +170,14 @@ class organise_fli_files():
         empty one with the expected columns if it doesn't exist yet.
         Result is stored in `self.all_image_df`.
         """
-        if not os.path.exists(CAL_LIST_PATH):
-            os.makedirs(CAL_LIST_PATH)
+        config.ensure_output_dir(self.cal_list_path, 'POUAKAI_CAL_LIST_DIR')
 
-        if not os.path.exists(CAL_LIST_PATH + 'bc_all_image_list.csv'):
+        if not os.path.exists(self.cal_list_path + 'bc_all_image_list.csv'):
             all_image_df = pd.DataFrame(columns=['name', 'telescope', 'imagetype', 'exptime', 'jd',
                                                   'date', 'band', 'readout', 'shape', 'median',
                                                   'object', 'filename'])
         else:
-            all_image_df = pd.read_csv(CAL_LIST_PATH + 'bc_all_image_list.csv')
+            all_image_df = pd.read_csv(self.cal_list_path + 'bc_all_image_list.csv')
 
         self.all_image_df = all_image_df
 
