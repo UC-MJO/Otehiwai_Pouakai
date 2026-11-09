@@ -604,19 +604,14 @@ coordinates, and instrumental magnitude, one row per target.
 ## Development
 
 ```bash
-python -m pip install -e ".[dev]"
-python -m build
-```
-
-To check the distribution, install the resulting wheel into a fresh environment
-and run `python -m pip check`. Configure data locations before processing data.
-
-Tests use temporary directories and synthetic inputs:
-
-```bash
 python -m pip install -e '.[dev]'
 python -m pytest
 ```
+
+CI runs these tests on Python 3.10 and 3.11 for pull requests and pushes to `main`.
+
+Build distributions with `python -m build`. To check their dependencies, install
+the resulting wheel into a fresh environment and run `python -m pip check`.
 
 ## Installation troubleshooting
 
