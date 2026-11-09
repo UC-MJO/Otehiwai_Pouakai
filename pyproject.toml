@@ -54,3 +54,9 @@ namespaces = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = ["--strict-markers", "-m", "not validation"]
+markers = [
+    "unit: focused checks of individual helpers and rules",
+    "integration: components working together with local inputs and controlled dependencies",
+    "validation: longer scientific accuracy checks (opt in with -m validation)",
+]

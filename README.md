@@ -608,7 +608,11 @@ python -m pip install -e '.[dev]'
 python -m pytest
 ```
 
-CI runs these tests on Python 3.10 and 3.11 for pull requests and pushes to `main`.
+The default run and CI include unit and integration tests. Select a layer with
+`python -m pytest -m unit` or `-m integration`; `-m validation` opts into longer
+scientific accuracy checks (no cases yet).
+
+CI runs on Python 3.10 and 3.11 for pull requests and pushes to `main`.
 
 Build distributions with `python -m build`. To check their dependencies, install
 the resulting wheel into a fresh environment and run `python -m pip check`.
