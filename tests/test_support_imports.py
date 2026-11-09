@@ -10,6 +10,16 @@ import sys
 __test__ = False
 
 
+class NoThirdPartyImports:
+    """Simulate missing dependencies while keeping the installed package importable."""
+
+    def find_spec(self, fullname, path=None, target=None):
+        name = fullname.partition('.')[0]
+        if name != 'otehiwai_pouakai' and name not in sys.stdlib_module_names:
+            raise ModuleNotFoundError(f'Third-party import blocked: {fullname}', name=fullname)
+        return None
+
+
 def install_audit_guard(*, forbid_side_effects=False):
     """Reject network access, optionally other side effects, and record attempts."""
     attempts = []
@@ -31,6 +41,7 @@ def install_audit_guard(*, forbid_side_effects=False):
 
 
 def check_public_imports(action):
+    sys.meta_path.insert(0, NoThirdPartyImports())
     before = dict(os.environ)
     attempts = install_audit_guard(forbid_side_effects=True)
     try:

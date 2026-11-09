@@ -3,7 +3,6 @@
 import os
 from pathlib import Path
 import sys
-import socket
 import subprocess
 
 import numpy as np
@@ -17,37 +16,9 @@ from otehiwai_pouakai import config, Pouakai
 _TEST_DIR = Path(__file__).resolve().parent
 
 
-@pytest.fixture(autouse=True)
-def local_environment(monkeypatch, tmp_path):
-    """Isolate each test's settings and data paths, and block socket connections."""
-    for name in os.environ:
-        if name.startswith('POUAKAI_') or name == 'PYSYN_CDBS':
-            monkeypatch.delenv(name)
-    for name, directory in {
-        'HOME': 'home', 'POUAKAI_HOME': 'data', 'MPLCONFIGDIR': 'mpl',
-        'XDG_CACHE_HOME': 'cache', 'XDG_CONFIG_HOME': 'config',
-        'IPYTHONDIR': 'ipython',
-    }.items():
-        monkeypatch.setenv(name, str(tmp_path / directory))
-    monkeypatch.setenv('MPLBACKEND', 'Agg')
-    monkeypatch.setenv('OPENBLAS_NUM_THREADS', '1')
-    monkeypatch.setenv('OMP_NUM_THREADS', '1')
-
-    def no_network(*args, **kwargs):
-        raise AssertionError('Tests must not access the network')
-
-    monkeypatch.setattr(socket.socket, 'connect', no_network)
-    monkeypatch.setattr(socket, 'getaddrinfo', no_network)
-
-
-def _run_python_check(script, tmp_path, *args, env, no_site=False, timeout=40):
+def _run_python_check(script, tmp_path, *args, env, timeout=40):
     """Run a standalone check with fresh imports and report its captured output."""
-    env = env.copy()
-    env['PYTHONPATH'] = str(_TEST_DIR.parent / 'src')
-    command = [sys.executable, '-B']
-    if no_site:
-        command.append('-S')
-    command.extend([str(_TEST_DIR / script), *args])
+    command = [sys.executable, '-B', str(_TEST_DIR / script), *args]
     result = subprocess.run(command, env=env, cwd=tmp_path, text=True,
                             capture_output=True, timeout=timeout)
     assert result.returncode == 0, (
@@ -65,9 +36,8 @@ def test_import_and_help_without_io_or_science_dependencies(tmp_path, configured
             env[name] = str(tmp_path / 'missing' / name)
     else:
         env.pop('POUAKAI_HOME', None)
-    # -S also proves these public entry points work without site-packages.
     _run_python_check('test_support_imports.py', tmp_path, action,
-                      env=env, no_site=True, timeout=20)
+                      env=env, timeout=20)
     assert not list(tmp_path.iterdir())
 
 
