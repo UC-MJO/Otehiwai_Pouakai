@@ -82,19 +82,26 @@ logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 warnings.filterwarnings('ignore')
 
+# Header entry to get the filter for a given camera
+_CAMERA_FILTER_HEADER = {
+    'moa': 'COLOUR',
+    'bc': 'FILTER',
+}
+
 # Recognised filter -> calibrimbore band-name mapping. Add an entry here to
 # support calibrating a new filter. Anything not listed (or listed in
 # _NARROWBAND_FILTERS below) raises a FilterMappingError from `_get_filter`
 # instead of calibrating against the wrong band.
 _FILTER_MAP = {
-    'V': 'bessell_V',
-    'I': 'bessell_I',
-    'Blue': 'bessell_B',
-    'Red': 'bessell_R',
-    'g': 'sloan_g',
-    'r': 'sloan_r',
-    'i': 'sloan_i',
-    'z': 'sloan_z',
+    'bc_V': 'bessell_V',
+    'bc_I': 'bessell_I',
+    'bc_Blue': 'bessell_B',
+    'bc_Red': 'bessell_R',
+    'bc_g': 'sloan_g',
+    'bc_r': 'sloan_r',
+    'bc_i': 'sloan_i',
+    'bc_z': 'sloan_z',
+    'moa_R': 'MoaR'
 }
 
 # Narrowband emission-line filters this pipeline's FITS headers can carry.
@@ -189,7 +196,8 @@ class cal_photom():
                  psf_error_inflation_max_scale=8.0,
                  epsf_sampling_candidates=(3, 2),
                  assess_spatial_variation=True,
-                 pixel_scale_arcsec=0.72):
+                 pixel_scale_arcsec=0.72,
+                 camera=None):
         '''
         Parameters
         ----------
@@ -343,6 +351,7 @@ class cal_photom():
         self.epsf_quality = None
         self.frame_quality = None
         self.median_contam_frac = np.nan
+        self.camera = camera
 
         if run:
             self.cal_files_location = config.validate_calibration_inputs()
@@ -701,7 +710,7 @@ class cal_photom():
             self.band = self._band_override
             return
 
-        raw = self.header['FILTER'].strip(' ')
+        raw = self.camera + '_' + self.header[_CAMERA_FILTER_HEADER[self.camera]].strip(' ')
 
         if raw in _FILTER_MAP:
             self.band = _FILTER_MAP[raw]

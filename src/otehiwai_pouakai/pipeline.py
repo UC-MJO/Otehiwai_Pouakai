@@ -159,7 +159,8 @@ class Pouakai:
                  epsf_sampling_candidates=(3, 2),
                  assess_spatial_variation=True, subtract_background=True,
                  wcs_input_files=None, wcs_input_dir=None, wcs_input_glob=None,
-                 cal_input_files=None, cal_input_dir=None, cal_input_glob=None):
+                 cal_input_files=None, cal_input_dir=None, cal_input_glob=None,
+                 camera=None):
         """
         wcs_input_files, wcs_input_dir, wcs_input_glob :
             Override the WCS stage's candidate frame list. By default
@@ -193,6 +194,10 @@ class Pouakai:
         if mode not in valid_modes:
             raise ValueError(f'mode must be one of {sorted(valid_modes)}, got {mode!r}')
         save_location = config.absolute_path(save_location) + '/'
+
+        valid_cameras = {'moa', 'bc'}
+        if camera not in valid_cameras:
+            raise ValueError(f"Supplied camera isn't currently supported, must be one of {sorted(valid_cameras)}.")
 
         # Check before archive scans, master building, or reduction can start a
         # long run.
@@ -247,7 +252,7 @@ class Pouakai:
                                    max_group_size, use_grouping, psf_error_inflation_max_scale,
                                    epsf_sampling_candidates, assess_spatial_variation,
                                    input_files=cal_input_files, input_dir=cal_input_dir,
-                                   input_glob=cal_input_glob)
+                                   input_glob=cal_input_glob, camera=camera)
 
     # ------------------------------------------------------------------
     # Stage runners
@@ -339,7 +344,7 @@ class Pouakai:
                           psf_error_inflation_max_scale=8.0,
                           epsf_sampling_candidates=(3, 2),
                           assess_spatial_variation=True,
-                          input_files=None, input_dir=None, input_glob=None):
+                          input_files=None, input_dir=None, input_glob=None, camera=None):
         from joblib import Parallel, delayed
         from tqdm import tqdm
         from .core_reduction import calibrating_internal
@@ -391,6 +396,7 @@ class Pouakai:
                 epsf_sampling_candidates=epsf_sampling_candidates,
                 assess_spatial_variation=assess_spatial_variation,
                 _log_file=log_file, _log_level=level, _console_level=console_level,
+                camera=camera
             )
             for filename in tqdm(wcs_files, desc='Calibrating...')
         )

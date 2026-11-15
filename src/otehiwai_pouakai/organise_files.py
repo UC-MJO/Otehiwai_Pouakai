@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
 
 from . import config
 
-_REQUIRED_KEYS = ['IMAGETYP', 'EXPTIME', 'JD', 'DATE-OBS', 'READOUTM']
+_BC_REQUIRED_KEYS = ['IMAGETYP', 'EXPTIME', 'JD', 'DATE-OBS', 'READOUTM']
+_MOA_REQUIRED_KEYS = ['RUN', 'EXPTIME', 'JDSTART', 'DATE-OBS', 'TIME-OBS', ]
 
 def open_and_inspect(file):
     """
@@ -59,7 +60,7 @@ def open_and_inspect(file):
             header = hdul[0].header
             data = hdul[0].data
 
-            missing = [k for k in _REQUIRED_KEYS if k not in header]
+            missing = [k for k in _BC_REQUIRED_KEYS if k not in header]
             if missing:
                 raise KeyError(f'missing header keys: {missing}')
 

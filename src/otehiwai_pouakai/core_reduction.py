@@ -3,12 +3,10 @@ import pandas as pd
 
 from astropy.io import fits
 from astropy.time import Time
-from astropy.stats import sigma_clipped_stats
 
 from scipy.ndimage import gaussian_filter
 from scipy.ndimage import binary_dilation
 
-from .background_subtraction import determine_background, background_residual_flatness, build_source_and_nebula_masks
 from .failure_ledger import record_failure, clear_failure, is_known_failure
 from .provenance import build_provenance_dict
 from .worker_logging import configure_process_logging
@@ -42,11 +40,16 @@ def reduction_script(updated_sci_list, i, save_location,
                       bkg_box_size=100, bkg_filter_size=3,
                       skip_known_failures=True, subtract_background=True):
     """
-    Reduce a single science frame: dark-subtract, flat-field, estimate and
-    subtract the sky background, and write a calibrated, gzipped FITS file.
+    Dark-subtract and flat-field a science frame, optionally subtract its
+    global median, and write a reduced, gzipped FITS file.
 
     Parameters
     ----------
+    subtract_background : bool
+        Subtract a single global median after dark/flat correction. If False,
+        do not estimate or subtract a background. No constant offset is added.
+    bkg_box_size, bkg_filter_size : int
+        Retained for call compatibility; unused by global median subtraction.
     skip_known_failures : bool
         If True (default), skip this frame without re-attempting it if it
         is recorded in the failure ledger from a previous run -- e.g. a
@@ -133,50 +136,31 @@ def reduction_script(updated_sci_list, i, save_location,
         reduced_data = (sci_data - dark_data) / flat_data
     reduced_data[~np.isfinite(reduced_data)] = np.nan
 
-    bkg_status = 'SUCCESS'
-    bkg_rms_median = np.nan
-    residual_flatness = np.nan
-
-    try:
-        background, background_rms = determine_background(
-            reduced_data, box_size=bkg_box_size, filter_size=bkg_filter_size,
-            plot=False, testing_plot=False, verbose=False,
-        )
-        
-        if subtract_background:
-            reduced_data -= background
-            bkg_rms_median = float(np.nanmedian(background_rms))
-        else:
-            bkg_status = 'SKIPPED'
-            bkg_rms_median = float(np.nanmedian(background_rms))
-            residual_flatness = np.nan
-
-        # Diagnostic: log residual sky flatness post-subtraction. This is
-        # the feedback signal recommended for catching mask-threshold
-        # failures on new fields without relying on visual inspection.
-        _, _, source_mask = build_source_and_nebula_masks(reduced_data + background)
-        residual_flatness, _ = background_residual_flatness(
-            reduced_data, np.zeros_like(reduced_data), source_mask,
-            box_size=bkg_box_size,
-        )
-
-    except Exception as e:
-        logger.warning(f'{i} {sci_file}: background estimation failed ({e}); falling back to sigma-clipped median')
-        bkg_status = 'FALLBACK_MEDIAN'
-        _, median, _ = sigma_clipped_stats(reduced_data, sigma=3)
-        background = np.full_like(reduced_data, median)
-        reduced_data -= median
+    if subtract_background:
+        sky = (float(np.nanmedian(reduced_data))
+               if np.isfinite(reduced_data).any() else np.nan)
+        if not np.isfinite(sky):
+            reason = 'cannot subtract background: no finite global median'
+            logger.warning(f'{i} {sci_file}: {reason}')
+            record_failure(save_location, _STAGE_REDUCTION, sci_file, reason)
+            _manifest.record_stage(save_location, _STAGE_REDUCTION, 'failed',
+                                   input_path=sci_file, reason=reason)
+            return None
+        reduced_data -= sky
 
     sci_header['DATERED'] = Time.now().isot
     sci_header['REDUCED'] = (True, 'Data reduced')
     sci_header['REDSTAT'] = ('SUCCESS', 'Photometric reduction status')
     sci_header['REDPIPE'] = ('reduction_script', 'Reduction pipeline script')
-    sci_header['REDBKG'] = ('determine_background', 'Background pipeline script')
-    sci_header['REDBKGST'] = (bkg_status, 'Background estimation status')
-    sci_header['REDSKY'] = (float(np.nanmedian(background)), 'Median background level')
-    _safe_header_set(sci_header, 'REDSKRMS', bkg_rms_median, 'Median per-pixel background RMS')
-    _safe_header_set(sci_header, 'REDFLAT', residual_flatness,
-                      'Std of per-tile residual sky after subtraction (mag/flux units)')
+    sci_header['REDBKG'] = ('global_median' if subtract_background else 'none',
+                            'Background subtraction method')
+    sci_header['REDBKGST'] = ('SUCCESS' if subtract_background else 'SKIPPED',
+                              'Background subtraction status')
+    # Do not carry over diagnostics that this method does not calculate.
+    for key in ('REDSKY', 'REDSKRMS', 'REDFLAT'):
+        sci_header.pop(key, None)
+    if subtract_background:
+        sci_header['REDSKY'] = (sky, 'Global median subtracted (image units)')
 
     # Provenance (item 7): exact calibration inputs used for THIS frame,
     # so a systematic discovered later can be traced back to the precise
@@ -237,7 +221,8 @@ def calibrating_internal(filename, save_location, skip_known_failures=True,
                           epsf_sampling_candidates=(3, 2),
                           assess_spatial_variation=True,
                           _log_file=None, _log_level=logging.INFO,
-                          _console_level=logging.ERROR):
+                          _console_level=logging.ERROR,
+                          camera=None):
     """
     Parameters
     ----------
@@ -345,7 +330,8 @@ def calibrating_internal(filename, save_location, skip_known_failures=True,
                             use_grouping=use_grouping,
                             psf_error_inflation_max_scale=psf_error_inflation_max_scale,
                             epsf_sampling_candidates=epsf_sampling_candidates,
-                            assess_spatial_variation=assess_spatial_variation)
+                            assess_spatial_variation=assess_spatial_variation,
+                            camera=camera)
 
         if cally.zeropoint_results is None:
             # zeropoint_results is None on several distinct early-return
