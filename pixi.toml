@@ -1,0 +1,19 @@
+[workspace]
+channels = ['conda-forge', 'nodefaults']
+name = "Pouakai"
+platforms = ['linux-64']
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = "3.11.*"
+pip = "*"
+git = "*"
+numpy = "1.24.4.*"
+astrometry = "0.97.*"
+setuptools = "<81"
+astropy = "6.1.0.*"
+
+[pypi-dependencies]
+otehiwai-pouakai = { path = ".", editable = true }

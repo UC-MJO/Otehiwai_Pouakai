@@ -11,4 +11,4 @@ export PYSYN_CDBS=/home/phys/astronomy/Pysynphot_Files
 
 # This selects the server's manual installation. To use an activated conda environment's
 # solver instead, unset POUAKAI_ASTROMETRY_BIN.
-export POUAKAI_ASTROMETRY_BIN=/usr/local/astrometry/bin
+# export POUAKAI_ASTROMETRY_BIN=/usr/local/astrometry/bin

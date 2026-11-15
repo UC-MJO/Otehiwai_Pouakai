@@ -89,11 +89,11 @@ from otehiwai_pouakai.pipeline import Pouakai, setup_logging
 from otehiwai_pouakai.matau import get_file_paths
 from otehiwai_pouakai.failure_ledger import load_known_failures, load_all_failures
 
-NUM_CORES = 30
+NUM_CORES = 20
 ORGANISE_GLOB = '/home/phys/astro8/MJArchive/octans/'          # full archive, all subfolders
 # TEST_NIGHT_GLOB = '/home/phys/astro8/MJArchive/octans/20250914/*.fit'  # single night to run
-TEST_NIGHT_GLOB = '/home/phys/astro8/MJArchive/octans/ASTR211_2025/20250823/*.fit'
-SAVE_LOCATION = '/home/users/zgl12/Pouakai_Test_20250914/'      # adjust as needed
+TEST_NIGHT_GLOB = '/home/phys/astro8/MJArchive/octans/20261112/*.fit'
+SAVE_LOCATION = '/home/users/tke61/Pouakai_Test_20261112/'      # adjust as needed
 
 # Calibration matching tolerances -- see calibration_saurus.py docstring.
 # The previous default (match_tol_px=1.0) was tighter than typical
@@ -219,7 +219,7 @@ def main():
             organise_files=True, make_masters=True, run=True, mode='modulo',
             dark_exp_tol=3, dark_date_tol=12, dark_delta_t=12,
             flat_exp_tol=3, flat_date_tol=45, flat_delta_t=15,
-            match_tol_px=MATCH_TOL_PX, isolation_radius_px=ISOLATION_RADIUS_PX, subtract_background=True)
+            match_tol_px=MATCH_TOL_PX, isolation_radius_px=ISOLATION_RADIUS_PX, subtract_background=False)
 
     _print_stage_summary(logger, SAVE_LOCATION, len(test_files))
     logger.info('Test run complete.')
