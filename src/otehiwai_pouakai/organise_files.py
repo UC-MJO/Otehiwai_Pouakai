@@ -27,10 +27,12 @@ logger = logging.getLogger(__name__)
 
 from . import config
 
-_BC_REQUIRED_KEYS = ['IMAGETYP', 'EXPTIME', 'JD', 'DATE-OBS', 'READOUTM']
-_MOA_REQUIRED_KEYS = ['RUN', 'EXPTIME', 'JDSTART', 'DATE-OBS', 'TIME-OBS', ]
+# Store all the required keys for all known cameras, in same order as _cameras
+_REQUIRED_KEYS = [['IMAGETYP', 'EXPTIME', 'JD', 'DATE-OBS', 'READOUTM'], ['RUN', 'EXPTIME', 'JDSTART', 'DATE-OBS', 'TIME-OBS', ]]
+_CAMERAS = ['bc', 'moa']
+_MOA_IMG_TYPES = {'A': 'science', 'D': 'dark', 'F': 'flat', 'B': 'bias'}
 
-def open_and_inspect(file):
+def open_and_inspect(file, camera=None):
     """
     Inspect a single FITS file and return a one-row DataFrame describing
     it: image type (dark/flat/bias/science), object name, exposure time,
@@ -59,19 +61,34 @@ def open_and_inspect(file):
         with fits.open(file, memmap=False) as hdul:
             header = hdul[0].header
             data = hdul[0].data
+            camera_index = _CAMERAS.index(camera)
 
-            missing = [k for k in _BC_REQUIRED_KEYS if k not in header]
+            missing = [k for k in _REQUIRED_KEYS[camera_index] if k not in header]
             if missing:
                 raise KeyError(f'missing header keys: {missing}')
 
-            imagetype = header['IMAGETYP'].lower()
+            # Do operations that are camera specific
+            if camera_index == 0:  # B&C telescope
+                imagetype = header['IMAGETYP'].lower()
+                entry['date'] = header['DATE-OBS'].strip()
+                entry['readout'] = header['READOUTM'].strip()
+                entry['band'] = camera + '_' + header.get('FILTER', 'Clear').strip()
+                obj = header.get('OBJECT', None).strip()
+                entry['jd'] = header['JD'].strip()
+
+            elif camera_index == 1:  # MOA telescope
+                image_prefix = header['RUN'].strip()[0]
+                imagetype = _MOA_IMG_TYPES[image_prefix]
+                entry['date'] = header['DATE-OBS'].strip() + 'T' + header['TIME_OBS'].strip()
+                entry['readout'] = header['READOUTM']
+                entry['band'] = camera + '_' + header.get('COLOUR', 'Clear')
+                obj = header.get('FIELD', None)
+                entry['jd'] = header['JDSTART']
 
             entry['name'] = file.split('/')[-1].split('.')[0]
-            entry['telescope'] = 'bc'
+            entry['telescope'] = camera
             entry['exptime'] = header['EXPTIME']
-            entry['jd'] = header['JD']
-            entry['date'] = header['DATE-OBS']
-            entry['readout'] = header['READOUTM']
+
             entry['shape'] = data.shape[0] if data is not None else -1
             entry['median'] = float(np.nanmedian(data)) if data is not None else np.nan
             entry['filename'] = file
@@ -87,10 +104,8 @@ def open_and_inspect(file):
                 entry['object'] = 'bias'
             else:
                 entry['imagetype'] = 'science'
-                obj = header.get('OBJECT', None)
                 entry['object'] = obj.replace(' ', '') if obj else 'unknown'
 
-            entry['band'] = header.get('FILTER', 'Clear')
 
     except Exception as e:
         logger.warning(f'{file}: failed to inspect ({e}); marking telescope=bad')
@@ -109,7 +124,7 @@ class organise_fli_files():
     each time.
     """
 
-    def __init__(self, num_cores=1, retry_bad=False, fli_dir=None):
+    def __init__(self, num_cores=1, retry_bad=False, fli_dir=None, camera=None):
         """
         Parameters
         ----------
@@ -134,9 +149,10 @@ class organise_fli_files():
             files are treated as "new" again and re-inspected.
         """
         self.num_cores = num_cores
+        self.camera = camera
 
-        resolved_fli_dir = config.raw_archive_dir() if fli_dir is None else fli_dir
-        root = Path(config.require_input_dir(resolved_fli_dir, 'POUAKAI_RAW_ARCHIVE_DIR / fli_dir'))
+        resolved_fli_dir = config.raw_archive_dir(self.camera) if fli_dir is None else fli_dir
+        root = Path(config.require_input_dir(resolved_fli_dir, f'POUAKAI_{self.camera.upper()}_RAW_ARCHIVE_DIR / fli_dir'))
         self.cal_list_path = config.cal_list_dir()
 
         files = list(root.rglob("*.fit*"))
@@ -160,10 +176,10 @@ class organise_fli_files():
         self.process_files(updated_files)
 
         print(f"Total of {len(self.all_image_df)} files in the database")
-        self.all_image_df.to_csv(self.cal_list_path + 'bc_all_image_list.csv', index=False)
+        self.all_image_df.to_csv(self.cal_list_path + f'{self.camera}_all_image_list.csv', index=False)
 
         for saving in ['dark', 'science', 'flat']:
-            self.all_image_df[self.all_image_df['imagetype'] == saving].to_csv(self.cal_list_path + f'bc_{saving}_image_list.csv', index=False)
+            self.all_image_df[self.all_image_df['imagetype'] == saving].to_csv(self.cal_list_path + f'{self.camera}_{saving}_image_list.csv', index=False)
 
     def _loading_dataframes(self):
         """
@@ -173,12 +189,12 @@ class organise_fli_files():
         """
         config.ensure_output_dir(self.cal_list_path, 'POUAKAI_CAL_LIST_DIR')
 
-        if not os.path.exists(self.cal_list_path + 'bc_all_image_list.csv'):
+        if not os.path.exists(self.cal_list_path + f'{self.camera}_all_image_list.csv'):
             all_image_df = pd.DataFrame(columns=['name', 'telescope', 'imagetype', 'exptime', 'jd',
                                                   'date', 'band', 'readout', 'shape', 'median',
                                                   'object', 'filename'])
         else:
-            all_image_df = pd.read_csv(self.cal_list_path + 'bc_all_image_list.csv')
+            all_image_df = pd.read_csv(self.cal_list_path + f'{self.camera}_all_image_list.csv')
 
         self.all_image_df = all_image_df
 
