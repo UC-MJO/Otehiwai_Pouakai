@@ -198,6 +198,7 @@ class Pouakai:
         valid_cameras = {'moa', 'bc'}
         if camera not in valid_cameras:
             raise ValueError(f"Supplied camera isn't currently supported, must be one of {sorted(valid_cameras)}.")
+        self.camera = camera
 
         # Check before archive scans, master building, or reduction can start a
         # long run.
@@ -269,7 +270,7 @@ class Pouakai:
     def _run_organise(self, num_cores):
         from .organise_files import organise_fli_files
 
-        organise_fli_files(num_cores=num_cores)
+        organise_fli_files(num_cores=num_cores, camera=self.camera, retry_bad=False)
 
     def _run_reduction(self, updated_sci_list, save_location, extra_conds, num_cores,
                         bkg_box_size, bkg_filter_size, subtract_background=True):

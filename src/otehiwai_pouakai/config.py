@@ -72,7 +72,8 @@ def _resolve_dir(env_var):
 
 def raw_archive_dir(camera):
     """Resolve the explicitly configured raw archive; never create it."""
-    value = os.environ.get(f'POUAKAI_{camera.upper()}_RAW_ARCHIVE_DIR', DEFAULTS['POUAKAI_RAW_ARCHIVE_DIR'])
+    # value = os.environ.get(f'POUAKAI_{camera.upper()}_RAW_ARCHIVE_DIR', DEFAULTS['POUAKAI_RAW_ARCHIVE_DIR'])
+    value = os.environ.get(f'POUAKAI_RAW_ARCHIVE_DIR', DEFAULTS['POUAKAI_RAW_ARCHIVE_DIR'])
     if value is None:
         raise ConfigurationError(
             'Set POUAKAI_RAW_ARCHIVE_DIR or pass fli_dir=... to organise_fli_files.')

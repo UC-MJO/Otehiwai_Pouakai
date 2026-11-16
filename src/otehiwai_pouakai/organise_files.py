@@ -74,7 +74,7 @@ def open_and_inspect(file, camera=None):
                 entry['readout'] = header['READOUTM'].strip()
                 entry['band'] = camera + '_' + header.get('FILTER', 'Clear').strip()
                 obj = header.get('OBJECT', None).strip()
-                entry['jd'] = header['JD'].strip()
+                entry['jd'] = header['JD']
 
             elif camera_index == 1:  # MOA telescope
                 image_prefix = header['RUN'].strip()[0]
@@ -152,7 +152,8 @@ class organise_fli_files():
         self.camera = camera
 
         resolved_fli_dir = config.raw_archive_dir(self.camera) if fli_dir is None else fli_dir
-        root = Path(config.require_input_dir(resolved_fli_dir, f'POUAKAI_{self.camera.upper()}_RAW_ARCHIVE_DIR / fli_dir'))
+        # root = Path(config.require_input_dir(resolved_fli_dir, f'POUAKAI_{self.camera.upper()}_RAW_ARCHIVE_DIR / fli_dir'))
+        root = Path(config.require_input_dir(resolved_fli_dir, f'POUAKAI_RAW_ARCHIVE_DIR / fli_dir'))
         self.cal_list_path = config.cal_list_dir()
 
         files = list(root.rglob("*.fit*"))
@@ -176,10 +177,10 @@ class organise_fli_files():
         self.process_files(updated_files)
 
         print(f"Total of {len(self.all_image_df)} files in the database")
-        self.all_image_df.to_csv(self.cal_list_path + f'{self.camera}_all_image_list.csv', index=False)
+        self.all_image_df.to_csv(self.cal_list_path + 'bc_all_image_list.csv', index=False)
 
         for saving in ['dark', 'science', 'flat']:
-            self.all_image_df[self.all_image_df['imagetype'] == saving].to_csv(self.cal_list_path + f'{self.camera}_{saving}_image_list.csv', index=False)
+            self.all_image_df[self.all_image_df['imagetype'] == saving].to_csv(self.cal_list_path + f'bc_{saving}_image_list.csv', index=False)
 
     def _loading_dataframes(self):
         """
@@ -189,12 +190,13 @@ class organise_fli_files():
         """
         config.ensure_output_dir(self.cal_list_path, 'POUAKAI_CAL_LIST_DIR')
 
-        if not os.path.exists(self.cal_list_path + f'{self.camera}_all_image_list.csv'):
+        if not os.path.exists(self.cal_list_path + 'bc_all_image_list.csv'):
             all_image_df = pd.DataFrame(columns=['name', 'telescope', 'imagetype', 'exptime', 'jd',
                                                   'date', 'band', 'readout', 'shape', 'median',
                                                   'object', 'filename'])
         else:
-            all_image_df = pd.read_csv(self.cal_list_path + f'{self.camera}_all_image_list.csv')
+            # all_image_df = pd.read_csv(self.cal_list_path + f'{self.camera}_all_image_list.csv')
+            all_image_df = pd.read_csv(self.cal_list_path + 'bc_all_image_list.csv')
 
         self.all_image_df = all_image_df
 
@@ -218,10 +220,10 @@ class organise_fli_files():
 
         if self.num_cores > 1:
             entries = Parallel(n_jobs=self.num_cores, backend="threading", prefer="threads")(
-                delayed(open_and_inspect)(updated_file)
+                delayed(open_and_inspect)(updated_file, self.camera)
                 for updated_file in tqdm(updated_files, desc='Processing files'))
         else:
-            entries = [open_and_inspect(updated_file) for updated_file in tqdm(updated_files, desc='Processing files')]
+            entries = [open_and_inspect(updated_file, self.camera) for updated_file in tqdm(updated_files, desc='Processing files')]
 
         for entry in entries:
             if entry is not None:
