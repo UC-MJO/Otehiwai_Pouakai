@@ -3,7 +3,7 @@ Master dark frame construction for the B&C reduction pipeline.
 
 Individual dark frames are grouped into calibration "clusters" by
 readout mode, then by proximity in both time (Julian date) and exposure
-time via DBSCAN clustering (see `_clustering_bc_darks`), and each cluster
+time via DBSCAN clustering (see `_clustering_darks`), and each cluster
 is combined into a single master dark via sigma-clipped stacking (see
 `build_master_dark_sigma_clip`). `make_master_darks` is the main entry
 point: it finds clusters not yet represented in the master dark catalog,
@@ -139,7 +139,7 @@ def _make_clustering(method, **kwargs):
 
     return method(**kwargs)
 
-def _filter_bc_darks(exp_tol=1, dark_delta_t=1, camera=None):
+def _filter_darks(exp_tol=1, dark_delta_t=1, camera=None):
     """
     Load the catalog of all recorded dark frames, restrict to usable
     (correct detector shape, not previously flagged bad) frames, and
@@ -148,15 +148,15 @@ def _filter_bc_darks(exp_tol=1, dark_delta_t=1, camera=None):
     Parameters
     ----------
     exp_tol : float
-        Passed to `_clustering_bc_darks` as `exp_tolerance`.
+        Passed to `_clustering_darks` as `exp_tolerance`.
     dark_delta_t : float
-        Passed to `_clustering_bc_darks` as `delta_t`.
+        Passed to `_clustering_darks` as `delta_t`.
 
     Returns
     -------
     pandas.DataFrame
         Filtered, clustered dark frame catalog with `cluster` and
-        `master_name` columns added (see `_clustering_bc_darks`).
+        `master_name` columns added (see `_clustering_darks`).
     """
     initial_df = pd.read_csv(config.catalogue_file(f'{camera}_dark_image_list.csv'))
 
@@ -169,11 +169,11 @@ def _filter_bc_darks(exp_tol=1, dark_delta_t=1, camera=None):
     chip_filtered_df = initial_df[shape_mask & bad_mask].copy()
     print(f"Number of darks after shape filtering: {len(chip_filtered_df)}")
 
-    chip_filtered_df = _clustering_bc_darks(chip_filtered_df, delta_t=dark_delta_t, exp_tolerance=exp_tol, camera=camera)
+    chip_filtered_df = _clustering_darks(chip_filtered_df, delta_t=dark_delta_t, exp_tolerance=exp_tol, camera=camera)
 
     return chip_filtered_df
 
-def _clustering_bc_darks(chip_filtered_df, delta_t=1, exp_tolerance=1.0, camera=None):
+def _clustering_darks(chip_filtered_df, delta_t=1, exp_tolerance=1.0, camera=None):
     """
     Group dark frames into calibration clusters, separately for each
     readout mode, using DBSCAN in (JD, exposure time) space.
@@ -275,20 +275,20 @@ def make_master_darks(exp_tol=1, dark_delta_t=1, num_cores=1, camera=None):
 
     Compares the set of calibration clusters found in the current dark
     frame list against the master names already recorded (with a
-    successfully-built file) in `bc_master_dark_list.csv`, builds masters
+    successfully-built file) in `{camera}_master_dark_list.csv`, builds masters
     only for the new ones, and appends them to the catalog.
 
     Parameters
     ----------
     exp_tol : float
-        Passed to `_filter_bc_darks` as `exp_tol`.
+        Passed to `_filter_darks` as `exp_tol`.
     dark_delta_t : float
-        Passed to `_filter_bc_darks` as `dark_delta_t`.
+        Passed to `_filter_darks` as `dark_delta_t`.
     num_cores : int
         If greater than 1, build masters for different clusters in
         parallel threads.
     """
-    dark_list = _filter_bc_darks(exp_tol=exp_tol, dark_delta_t=dark_delta_t)
+    dark_list = _filter_darks(exp_tol=exp_tol, dark_delta_t=dark_delta_t)
     try:
         masters = pd.read_csv(config.cal_list_dir() + f'{camera}_master_dark_list.csv')
     except Exception:
@@ -353,7 +353,7 @@ def _master_darks(dark_list, camera):
     ----------
     dark_list : pandas.DataFrame
         Rows (all one cluster) from the clustered dark frame catalog, as
-        produced by `_clustering_bc_darks`.
+        produced by `_clustering_darks`.
     camera : str
         Camera used to take the images currently being processed
 

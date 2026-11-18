@@ -92,8 +92,8 @@ from otehiwai_pouakai.failure_ledger import load_known_failures, load_all_failur
 NUM_CORES = 20
 ORGANISE_GLOB = '/home/phys/astro8/MJArchive/octans/'          # full archive, all subfolders
 # TEST_NIGHT_GLOB = '/home/phys/astro8/MJArchive/octans/20250914/*.fit'  # single night to run
-TEST_NIGHT_GLOB = '/home/phys/astro8/MJArchive/octans/20261116/*.fit'
-SAVE_LOCATION = '/home/users/tke61/Pouakai_Test_20261116/'      # adjust as needed
+TEST_NIGHT_GLOB = '/home/phys/astro8/MJArchive/MOA/20261116/*.fit*'
+SAVE_LOCATION = '/home/users/tke61/Pouakai_Test_moa_first_test/'      # adjust as needed
 
 # Calibration matching tolerances -- see calibration_saurus.py docstring.
 # The previous default (match_tol_px=1.0) was tighter than typical

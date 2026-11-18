@@ -4,7 +4,7 @@ Master flat frame construction for the B&C and MOA reduction pipeline.
 Flat frames are grouped into calibration blocks per (readout mode,
 band, chip), using agglomerative clustering with complete linkage and a
 Chebyshev metric to strictly bound both the time span and exposure-time
-span of any single block (see `_clustering_bc_flats`). Each block is
+span of any single block (see `_clustering_flats`). Each block is
 matched to a suitable master dark (via `dark_masters.get_master_dark`)
 and combined into a single master flat via sigma-clipped stacking of
 dark-subtracted, median-normalized frames (see
@@ -56,7 +56,7 @@ def assign_time_blocks(df, delta_t):
     to be sorted by Julian date) such that a new block starts whenever
     the gap since the CURRENT block's first frame exceeds `delta_t`.
 
-    Not currently used by `_clustering_bc_flats` (which uses
+    Not currently used by `_clustering_flats` (which uses
     agglomerative clustering instead), but kept as a simpler, sequential
     alternative grouping strategy.
 
@@ -267,17 +267,17 @@ def make_master_flats(exp_tol=1, flat_delta_t=30, dark_delta_t=1, num_cores=1, c
 
     Compares the set of calibration blocks found in the current flat
     frame list against the master names already recorded in
-    `bc_master_flat_list.csv`, builds masters only for the new ones, and
+    `{camera}_master_flat_list.csv`, builds masters only for the new ones, and
     appends them to the catalog.
 
     Parameters
     ----------
     exp_tol : float
-        Passed to `_filter_bc_flats` as `exp_tol`.
+        Passed to `_filter_flats` as `exp_tol`.
     flat_delta_t : float
-        Passed to `_filter_bc_flats` as `flat_delta_t`.
+        Passed to `_filter_flats` as `flat_delta_t`.
     dark_delta_t : float
-        Passed to `_filter_bc_flats` as `dark_delta_t`.
+        Passed to `_filter_flats` as `dark_delta_t`.
     num_cores : int
         If greater than 1, build masters for different blocks in
         parallel threads.

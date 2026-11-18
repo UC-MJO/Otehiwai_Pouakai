@@ -5,7 +5,7 @@ File discovery and cataloging for the B&C reduction pipeline.
 any not already present in the master image catalog (`open_and_inspect`),
 classifies each by image type (dark/flat/bias/science) from its FITS
 header, and writes the updated catalog CSVs used by the rest of the
-pipeline (`bc_all_image_list.csv` plus per-type subsets).
+pipeline (`{camera}_all_image_list.csv` plus per-type subsets).
 """
 
 from astropy.io import fits
@@ -147,7 +147,7 @@ class organise_fli_files():
             `config.ConfigurationError` if missing or invalid.
         retry_bad : bool
             A file that fails inspection is recorded with
-            `telescope='bad'` in `bc_all_image_list.csv`; since its
+            `telescope='bad'` in {camera}_all_image_list.csv`; since its
             filename is then present in the catalog, it is excluded from
             `updated_files` on every subsequent run, so bad files are
             never silently re-attempted (good for cron efficiency). To
