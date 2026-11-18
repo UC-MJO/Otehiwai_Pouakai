@@ -208,7 +208,7 @@ def get_file_paths(file_path):
             file_path_list.append(config.absolute_path(filename))
     return file_path_list
 
-def update_df(files):
+def update_df(files, camera):
     """
     Build a per-frame dataframe for the given science `files`, adding a
     UTC observation date and a `master_name` grouping key
@@ -233,15 +233,18 @@ def update_df(files):
         Rows of the master science image list matching `files`, with
         `jd_utc`, `running_number`, and `master_name` columns added.
     """
-    all_sci_df = pd.read_csv(config.catalogue_file('bc_science_image_list.csv'))
+    all_sci_df = pd.read_csv(config.catalogue_file(f'{camera}_science_image_list.csv'))
 
     df = all_sci_df.copy()
 
+    if camera == 'bc':
+        df['chip'] = 0
+
     df['jd_utc'] = Time(df['jd'].values, format='jd').utc.strftime('%Y%m%d')
 
-    df = df.sort_values(['object', 'jd_utc', 'band', 'jd']).reset_index(drop=True)
-    df['running_number'] = (df.groupby(['object', 'jd_utc', 'band']).cumcount().add(1).astype(str).str.zfill(4))
-    df['master_name'] = (df['object'].astype(str) + '_' + df['jd_utc'] + '_' + df['band'].astype(str) + '_' + df['running_number'])
+    df = df.sort_values(['object', 'jd_utc', 'band', 'jd', 'chip']).reset_index(drop=True)
+    df['running_number'] = (df.groupby(['object', 'jd_utc', 'band', 'chip']).cumcount().add(1).astype(str).str.zfill(4))
+    df['master_name'] = (df['object'].astype(str) + '_' + df['jd_utc'] + '_' + df['band'].astype(str) + '_' + df['running_number'] + '_' + df['chip'])
 
     requested_files = {config.absolute_path(filename) for filename in files}
     updated_sci_list = df[df['filename'].isin(requested_files)].copy()

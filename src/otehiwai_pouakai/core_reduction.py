@@ -38,7 +38,7 @@ def reduction_script(updated_sci_list, i, save_location,
                                    'flat_date_tol': 30,
                                    'shape': 2048},
                       bkg_box_size=100, bkg_filter_size=3,
-                      skip_known_failures=True, subtract_background=True):
+                      skip_known_failures=True, subtract_background=True, camera=None):
     """
     Dark-subtract and flat-field a science frame, optionally subtract its
     global median, and write a reduced, gzipped FITS file.
@@ -72,6 +72,7 @@ def reduction_script(updated_sci_list, i, save_location,
     jd = updated_sci_list['jd'].iloc[i]
     readout = updated_sci_list['readout'].iloc[i]
     band = updated_sci_list['band'].iloc[i]
+    chip = updated_sci_list['chip'].iloc[i]
 
     new_name = updated_sci_list['master_name'].iloc[i]
     new_name = new_name.replace(' ', '_')
@@ -96,12 +97,12 @@ def reduction_script(updated_sci_list, i, save_location,
         jd, exptime, readout,
         exp_tol=extra_conds['dark_exp_tol'],
         date_tol=extra_conds['dark_date_tol'],
-        shape=extra_conds['shape'],
+        shape=extra_conds['shape'], chip=chip, camera=camera
     )
     flat_fname, flat_t_diff = get_master_flat(
         jd, readout, band,
         date_tol=extra_conds['flat_date_tol'],
-        shape=extra_conds['shape'],
+        shape=extra_conds['shape'], chip=chip, camera=camera
     )
 
     if dark_fname == 'none':

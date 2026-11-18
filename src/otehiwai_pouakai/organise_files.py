@@ -166,8 +166,12 @@ class organise_fli_files():
         resolved_dir = config.raw_archive_dir(self.camera) if all_files_dir is None else all_files_dir
         root = Path(config.require_input_dir(resolved_dir, f'POUAKAI_{self.camera.upper()}_RAW_ARCHIVE_DIR / fli_dir'))
         self.cal_list_path = config.cal_list_dir()
-
+        
         files = list(root.rglob("*.fit*"))
+        if camera == 'moa':
+            mosaics_to_skip = set(root.rglob("*-0.fit*"))
+            focus_images_to_skip = set(root.rglob("*-0.fit*"))
+            files = list(set(files) - mosaics_to_skip - focus_images_to_skip)
         self.files = files
         print(f"Found {len(files)} files")
 

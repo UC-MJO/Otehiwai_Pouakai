@@ -227,12 +227,12 @@ class Pouakai:
             self._timed_stage('Building master darks', make_master_darks,
                                exp_tol=extra_conds['dark_exp_tol'],
                                dark_delta_t=extra_conds['dark_delta_t'],
-                               num_cores=num_cores)
+                               num_cores=num_cores, camera=self.camera)
             self._timed_stage('Building master flats', make_master_flats,
                                exp_tol=extra_conds['flat_exp_tol'],
                                flat_delta_t=extra_conds['flat_delta_t'],
                                dark_delta_t=extra_conds['dark_date_tol'],
-                               num_cores=num_cores)
+                               num_cores=num_cores, camera=self.camera)
 
         if not run:
             self.logger.info('run=False; stopping after setup/master-building stages')
@@ -241,10 +241,10 @@ class Pouakai:
         if mode in ('modulo', 'red'):
             from .matau import update_df
 
-            updated_sci_list = update_df(files)
+            updated_sci_list = update_df(files, self.camera)
             self.logger.info(f'{len(updated_sci_list)} science frames matched for this run')
             self._run_reduction(updated_sci_list, save_location, extra_conds, num_cores,
-                                 bkg_box_size, bkg_filter_size, subtract_background=subtract_background)
+                                 bkg_box_size, bkg_filter_size, subtract_background=subtract_background, camera=self.camera)
 
         if mode in ('modulo', 'wcs'):
             self._run_wcs(save_location, wcs_order, num_cores, wcs_cpulimit, wcs_subprocess_timeout,
@@ -277,7 +277,7 @@ class Pouakai:
         organise_fli_files(num_cores=num_cores, camera=self.camera, retry_bad=False)
 
     def _run_reduction(self, updated_sci_list, save_location, extra_conds, num_cores,
-                        bkg_box_size, bkg_filter_size, subtract_background=True):
+                        bkg_box_size, bkg_filter_size, subtract_background=True, camera=None):
         from joblib import Parallel, delayed
         from tqdm import tqdm
         from .core_reduction import reduction_script
@@ -289,7 +289,7 @@ class Pouakai:
             delayed(reduction_script)(
                 updated_sci_list, idx, save_location, extra_conds,
                 bkg_box_size=bkg_box_size, bkg_filter_size=bkg_filter_size,
-                subtract_background=subtract_background
+                subtract_background=subtract_background, camera=camera
             )
             for idx in tqdm(range(len(updated_sci_list)), desc='Reducing files')
         )
