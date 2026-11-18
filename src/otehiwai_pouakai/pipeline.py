@@ -186,6 +186,10 @@ class Pouakai:
             ('modulo', 'cal'). Calibration outputs (cal/, phot_table/,
             zp/) always land under THIS run's `save_location`
             regardless of where the inputs came from.
+        camera : str
+            The camera used to take the images, currently only supports images
+            from the FLI camera on the B&C (called as camera='bc'), but support
+            for MOA (camera='moa') is under development
         """
 
         self.logger = logging.getLogger('otehiwai_pouakai.Pouakai')

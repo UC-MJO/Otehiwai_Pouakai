@@ -139,7 +139,7 @@ def _make_clustering(method, **kwargs):
 
     return method(**kwargs)
 
-def _filter_bc_darks(exp_tol=1, dark_delta_t=1):
+def _filter_bc_darks(exp_tol=1, dark_delta_t=1, camera=None):
     """
     Load the catalog of all recorded dark frames, restrict to usable
     (correct detector shape, not previously flagged bad) frames, and
@@ -158,19 +158,22 @@ def _filter_bc_darks(exp_tol=1, dark_delta_t=1):
         Filtered, clustered dark frame catalog with `cluster` and
         `master_name` columns added (see `_clustering_bc_darks`).
     """
-    initial_df = pd.read_csv(config.catalogue_file('bc_dark_image_list.csv'))
+    initial_df = pd.read_csv(config.catalogue_file(f'{camera}_dark_image_list.csv'))
 
-    shape_mask = initial_df['shape'].values.astype(int) == 2048
+    if camera == 'bc':
+        shape_mask = initial_df['shape'].values.astype(int) == 2048
+    elif camera == 'moa':
+        shape_mask = initial_df['shape'].values.astype(int) == 4096
     bad_mask = initial_df['telescope'].values.astype(str) != 'bad'
 
     chip_filtered_df = initial_df[shape_mask & bad_mask].copy()
     print(f"Number of darks after shape filtering: {len(chip_filtered_df)}")
 
-    chip_filtered_df = _clustering_bc_darks(chip_filtered_df, delta_t=dark_delta_t, exp_tolerance=exp_tol)
+    chip_filtered_df = _clustering_bc_darks(chip_filtered_df, delta_t=dark_delta_t, exp_tolerance=exp_tol, camera=camera)
 
     return chip_filtered_df
 
-def _clustering_bc_darks(chip_filtered_df, delta_t=1, exp_tolerance=1.0):
+def _clustering_bc_darks(chip_filtered_df, delta_t=1, exp_tolerance=1.0, camera=None):
     """
     Group dark frames into calibration clusters, separately for each
     readout mode, using DBSCAN in (JD, exposure time) space.
@@ -194,6 +197,8 @@ def _clustering_bc_darks(chip_filtered_df, delta_t=1, exp_tolerance=1.0):
     exp_tolerance : float
         DBSCAN neighbourhood radius in exposure time (seconds), after
         scaling.
+    camera : str
+        camera that was used to take images currently being processed
 
     Returns
     -------
@@ -207,7 +212,7 @@ def _clustering_bc_darks(chip_filtered_df, delta_t=1, exp_tolerance=1.0):
     cluster_offset = 0
     name_counter = defaultdict(int)
 
-    for readout, df_ro in chip_filtered_df.groupby('readout'):
+    for readout, chip, df_ro in chip_filtered_df.groupby(['readout', 'chip']):
         df_ro = df_ro.sort_values('jd').reset_index(drop=True)
 
         X = df_ro[['jd', 'exptime']].astype(float).values
@@ -226,6 +231,7 @@ def _clustering_bc_darks(chip_filtered_df, delta_t=1, exp_tolerance=1.0):
                 continue
 
             sub = df_ro[df_ro['cluster'] == cl].copy()
+            sub['chip'] = chip
 
             t_start = sub['jd'].min()
             t_end = sub['jd'].max()
@@ -237,10 +243,14 @@ def _clustering_bc_darks(chip_filtered_df, delta_t=1, exp_tolerance=1.0):
             exp_str = f"{int(round(median_exptime))}s"
 
             readout_val = sub['readout'].iloc[0]
-            readout_str = normalize_readout(readout_val)
+            if camera == 'moa':
+                readout_str = readout_val  # As MOA doesn't record readout mode in headers, but all moa images
+                                           # have the same readout
+            else:
+                readout_str = normalize_readout(readout_val)
             shape_val = sub['shape'].iloc[0]
 
-            base_name = f"master_dark_{jd_utc}_{exp_str}_{readout_str}_{int(shape_val)}"
+            base_name = f"master_dark_{jd_utc}_{exp_str}_{readout_str}_{int(shape_val)}_{int(chip)}"
 
             name_counter[base_name] += 1
             master_name = (base_name if name_counter[base_name] == 1
@@ -258,7 +268,7 @@ def _clustering_bc_darks(chip_filtered_df, delta_t=1, exp_tolerance=1.0):
     return pd.concat(result, ignore_index=True)
 
 
-def make_master_darks(exp_tol=1, dark_delta_t=1, num_cores=1):
+def make_master_darks(exp_tol=1, dark_delta_t=1, num_cores=1, camera=None):
     """
     Build any master dark frames not yet present in the master dark
     catalog, and update the catalog CSV.
@@ -280,10 +290,13 @@ def make_master_darks(exp_tol=1, dark_delta_t=1, num_cores=1):
     """
     dark_list = _filter_bc_darks(exp_tol=exp_tol, dark_delta_t=dark_delta_t)
     try:
-        masters = pd.read_csv(config.cal_list_dir() + 'bc_master_dark_list.csv')
+        masters = pd.read_csv(config.cal_list_dir() + f'{camera}_master_dark_list.csv')
     except Exception:
         masters = pd.DataFrame(columns=['name', 'telescope', 'exptime', 'jd', 'date', 'readout',
                                         'filename', 'nimages', 'shape', 'median', 'note'])
+
+    if camera == 'bc':
+        masters['chip'] = 0
 
     all_names = set(dark_list['master_name'].values) if len(dark_list) else set()
 
@@ -299,7 +312,7 @@ def make_master_darks(exp_tol=1, dark_delta_t=1, num_cores=1):
     master_names = set(masters.loc[successful_mask, 'name'].values) if len(masters) else set()
 
     dark_list = dark_list.reset_index(drop=True)
-    dark_list.to_csv(config.cal_list_dir() + 'temp_bc_dark_list_filtered.csv', index=False)
+    dark_list.to_csv(config.cal_list_dir() + f'temp_{camera}_dark_list_filtered.csv', index=False)
 
     new = all_names - master_names
     new = list(new)
@@ -325,9 +338,9 @@ def make_master_darks(exp_tol=1, dark_delta_t=1, num_cores=1):
     masters = masters.reset_index(drop=True)
     print('Done creating master darks, total masters:', len(masters))
 
-    masters.to_csv(config.cal_list_dir() + 'bc_master_dark_list.csv', index=False)
+    masters.to_csv(config.cal_list_dir() + f'{camera}_master_dark_list.csv', index=False)
 
-def _bc_master_darks(dark_list):
+def _master_darks(dark_list, camera):
     """
     Build a single master dark from the frames in `dark_list` (all rows
     are assumed to belong to the same cluster) and write it to disk.
@@ -341,6 +354,8 @@ def _bc_master_darks(dark_list):
     dark_list : pandas.DataFrame
         Rows (all one cluster) from the clustered dark frame catalog, as
         produced by `_clustering_bc_darks`.
+    camera : str
+        Camera used to take the images currently being processed
 
     Returns
     -------
@@ -356,13 +371,14 @@ def _bc_master_darks(dark_list):
     entry = {}
 
     entry['name'] = master_name
-    entry['telescope'] = 'B&C'
+    entry['telescope'] = camera
     entry['exptime'] = np.nanmean(dark_list['exptime'].astype(float))
     entry['readout'] = str(readout_mode)
     entry['jd'] = np.nanmean(dark_list['jd'].astype(float))
     entry['date'] = dark_list['date'].iloc[0]
     entry['nimages'] = len(files)
     entry['shape'] = int(dark_list['shape'].iloc[0])
+    entry['chip'] = int(dark_list['chip'].iloc[0])
 
     if len(files) < 3:
         logger.info(f'{master_name}: too few frames ({len(files)}) to build a master dark; skipping (will retry later if more arrive)')
@@ -397,13 +413,13 @@ def _bc_master_darks(dark_list):
 def dark_processing(dark_list, cluster):
     """
     Build a master dark for a single cluster ID within `dark_list`.
-    Thin wrapper around `_bc_master_darks` used as the per-cluster unit
+    Thin wrapper around `_master_darks` used as the per-cluster unit
     of work in `make_master_darks`'s (optionally parallel) loop.
     """
     sub_dark_list = dark_list[dark_list['cluster'] == cluster].copy()
-    return _bc_master_darks(sub_dark_list)
+    return _master_darks(sub_dark_list)
 
-def get_master_dark(jd, exptime, readout, exp_tol=1, date_tol=3, shape=2048):
+def get_master_dark(jd, exptime, readout, exp_tol=1, date_tol=3, shape=2048, chip=0, camera=None):
     """
     Find the closest-in-time suitable master dark for a given science
     frame's JD, exposure time, readout mode, and detector shape.
@@ -424,6 +440,10 @@ def get_master_dark(jd, exptime, readout, exp_tol=1, date_tol=3, shape=2048):
         frame and a candidate master dark's mean JD.
     shape : int
         Required detector shape (pixels per side).
+    chip : 0
+        Chip the image was taken on, 0 for B&C
+    camera : str
+        The camera used to take the images being analysed
 
     Returns
     -------
@@ -432,11 +452,14 @@ def get_master_dark(jd, exptime, readout, exp_tol=1, date_tol=3, shape=2048):
         from the science frame, or `('none', -999)` if no suitable master
         dark is found.
     """
-    catalogue = config.catalogue_file('bc_master_dark_list.csv')
+    catalogue = config.catalogue_file(f'{camera}_master_dark_list.csv')
     try:
         darks = pd.read_csv(catalogue)
     except Exception:
         return 'none', -999
+
+    if camera == 'bc':
+        darks['chip'] = 0
 
     darks = darks[darks['filename'] != 'IGNORED'].copy()
     if len(darks) == 0:
@@ -447,11 +470,12 @@ def get_master_dark(jd, exptime, readout, exp_tol=1, date_tol=3, shape=2048):
 
     readout_ind = dreadout == str(readout)
     exp_ind = np.abs(dexptime - float(exptime)) <= exp_tol
+    chip_ind = str(chip) == darks['chip'].values.astype(str)
 
     dshape = darks['shape'].values
     shape_ind = dshape.astype(int) == int(shape)
 
-    mask = exp_ind & readout_ind & shape_ind
+    mask = exp_ind & readout_ind & shape_ind & chip_ind
     good = darks.loc[mask]
 
     if len(good) == 0:

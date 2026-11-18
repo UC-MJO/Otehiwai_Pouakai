@@ -86,7 +86,7 @@ def open_and_inspect(file, camera=None):
                 else:
                     raise Exception("file found in the wrong folder")
                 entry['date'] = header['DATE-OBS'].strip() + 'T' + header['TIME_OBS'].strip()
-                entry['readout'] = header['READOUTM']
+                entry['readout'] = 'Standard moa readout'
                 entry['band'] = camera + '_' + header.get('COLOUR', 'Clear')
                 obj = header.get('FIELD', None)
                 entry['jd'] = header['JDSTART']
