@@ -28,7 +28,8 @@ import subprocess
 # POUAKAI_HOME. Its default is relative to the working directory.
 DEFAULTS = {
     'POUAKAI_HOME': 'pouakai_data',
-    'POUAKAI_RAW_ARCHIVE_DIR': None,  # Required for archive discovery.
+    'POUAKAI_MOA_RAW_ARCHIVE_DIR': None,  # Required for archive discovery.
+    'POUAKAI_BC_RAW_ARCHIVE_DIR': None,  # Required for archive discovery.
     'POUAKAI_CAL_LIST_DIR': 'cal_lists',
     'POUAKAI_CAL_FILES_DIR': 'cal_files',
     'POUAKAI_MASTER_DARK_DIR': 'masters/darks',
@@ -72,12 +73,11 @@ def _resolve_dir(env_var):
 
 def raw_archive_dir(camera):
     """Resolve the explicitly configured raw archive; never create it."""
-    # value = os.environ.get(f'POUAKAI_{camera.upper()}_RAW_ARCHIVE_DIR', DEFAULTS['POUAKAI_RAW_ARCHIVE_DIR'])
-    value = os.environ.get(f'POUAKAI_RAW_ARCHIVE_DIR', DEFAULTS['POUAKAI_RAW_ARCHIVE_DIR'])
+    value = os.environ.get(f'POUAKAI_{camera.upper()}_RAW_ARCHIVE_DIR', DEFAULTS[f'POUAKAI_{camera.upper()}_RAW_ARCHIVE_DIR'])
     if value is None:
         raise ConfigurationError(
-            'Set POUAKAI_RAW_ARCHIVE_DIR or pass fli_dir=... to organise_fli_files.')
-    return _directory_string(_path(value, 'POUAKAI_RAW_ARCHIVE_DIR'))
+            f'Set POUAKAI_{camera.upper()}_RAW_ARCHIVE_DIR or pass all_files_dir=... to organise files.')
+    return _directory_string(_path(value, f'POUAKAI_{camera.upper()}_RAW_ARCHIVE_DIR'))
 
 
 def cal_list_dir():

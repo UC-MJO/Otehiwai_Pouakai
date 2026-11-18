@@ -48,6 +48,7 @@ def open_and_inspect(file, camera=None):
     ----------
     file : str or Path
         Path to the FITS file to inspect.
+    camera : camera the file was taken with (determines fits header keys to use)
 
     Returns
     -------
@@ -75,15 +76,23 @@ def open_and_inspect(file, camera=None):
                 entry['band'] = camera + '_' + header.get('FILTER', 'Clear').strip()
                 obj = header.get('OBJECT', None).strip()
                 entry['jd'] = header['JD']
+                entry['chip'] = 0
 
             elif camera_index == 1:  # MOA telescope
+                intended_type = file.split("/")[6][0]
                 image_prefix = header['RUN'].strip()[0]
-                imagetype = _MOA_IMG_TYPES[image_prefix]
+                if intended_type == image_prefix:
+                    imagetype = _MOA_IMG_TYPES[image_prefix]
+                else:
+                    raise Exception("file found in the wrong folder")
                 entry['date'] = header['DATE-OBS'].strip() + 'T' + header['TIME_OBS'].strip()
                 entry['readout'] = header['READOUTM']
                 entry['band'] = camera + '_' + header.get('COLOUR', 'Clear')
                 obj = header.get('FIELD', None)
                 entry['jd'] = header['JDSTART']
+                entry['chip'] = header['CHIP']
+                if int(entry['chip']) in [0, 99]:
+                    logger.warning(f'{file}: not an expected chip; check how files are selected')
 
             entry['name'] = file.split('/')[-1].split('.')[0]
             entry['telescope'] = camera
@@ -124,16 +133,16 @@ class organise_fli_files():
     each time.
     """
 
-    def __init__(self, num_cores=1, retry_bad=False, fli_dir=None, camera=None):
+    def __init__(self, num_cores=1, retry_bad=False, all_files_dir=None, camera=None):
         """
         Parameters
         ----------
         num_cores : int
             If greater than 1, inspect newly discovered files in
             parallel threads.
-        fli_dir : str or None
+        all_files_dir : str or None
             Root of the raw FITS archive to walk recursively for new
-            files. Defaults to `POUAKAI_RAW_ARCHIVE_DIR` at construction time.
+            files. Defaults to `POUAKAI_{camera}_RAW_ARCHIVE_DIR` at construction time.
             Must be an existing, readable directory. Raises
             `config.ConfigurationError` if missing or invalid.
         retry_bad : bool
@@ -147,13 +156,15 @@ class organise_fli_files():
             `retry_bad=True`: this removes existing `telescope='bad'`
             rows before diffing against the current file list, so those
             files are treated as "new" again and re-inspected.
+        camera : str
+            The camera that the data tp be analyszed was taken on, currently can be 'moa'
+            or 'bc'
         """
         self.num_cores = num_cores
         self.camera = camera
 
-        resolved_fli_dir = config.raw_archive_dir(self.camera) if fli_dir is None else fli_dir
-        # root = Path(config.require_input_dir(resolved_fli_dir, f'POUAKAI_{self.camera.upper()}_RAW_ARCHIVE_DIR / fli_dir'))
-        root = Path(config.require_input_dir(resolved_fli_dir, f'POUAKAI_RAW_ARCHIVE_DIR / fli_dir'))
+        resolved_dir = config.raw_archive_dir(self.camera) if all_files_dir is None else all_files_dir
+        root = Path(config.require_input_dir(resolved_dir, f'POUAKAI_{self.camera.upper()}_RAW_ARCHIVE_DIR / fli_dir'))
         self.cal_list_path = config.cal_list_dir()
 
         files = list(root.rglob("*.fit*"))
@@ -177,10 +188,10 @@ class organise_fli_files():
         self.process_files(updated_files)
 
         print(f"Total of {len(self.all_image_df)} files in the database")
-        self.all_image_df.to_csv(self.cal_list_path + 'bc_all_image_list.csv', index=False)
+        self.all_image_df.to_csv(self.cal_list_path + f'{self.camera}_all_image_list.csv', index=False)
 
         for saving in ['dark', 'science', 'flat']:
-            self.all_image_df[self.all_image_df['imagetype'] == saving].to_csv(self.cal_list_path + f'bc_{saving}_image_list.csv', index=False)
+            self.all_image_df[self.all_image_df['imagetype'] == saving].to_csv(self.cal_list_path + f'{self.camera}_{saving}_image_list.csv', index=False)
 
     def _loading_dataframes(self):
         """
@@ -190,13 +201,20 @@ class organise_fli_files():
         """
         config.ensure_output_dir(self.cal_list_path, 'POUAKAI_CAL_LIST_DIR')
 
-        if not os.path.exists(self.cal_list_path + 'bc_all_image_list.csv'):
-            all_image_df = pd.DataFrame(columns=['name', 'telescope', 'imagetype', 'exptime', 'jd',
-                                                  'date', 'band', 'readout', 'shape', 'median',
-                                                  'object', 'filename'])
+        if not os.path.exists(self.cal_list_path + f'{self.camera}_all_image_list.csv'):
+            if self.camera == 'bc':
+                all_image_df = pd.DataFrame(columns=['name', 'telescope', 'imagetype', 'exptime', 'jd',
+                                                    'date', 'band', 'readout', 'shape', 'median',
+                                                    'object', 'filename'])
+                
+            else:
+                all_image_df = pd.DataFrame(columns=['name', 'telescope', 'imagetype', 'exptime', 'jd',
+                                                                    'date', 'band', 'readout', 'shape', 'median',
+                                                                    'object', 'filename', 'chip'])
         else:
-            # all_image_df = pd.read_csv(self.cal_list_path + f'{self.camera}_all_image_list.csv')
-            all_image_df = pd.read_csv(self.cal_list_path + 'bc_all_image_list.csv')
+            all_image_df = pd.read_csv(self.cal_list_path + f'{self.camera}_all_image_list.csv')
+            if self.camera == 'bc':
+                all_image_df['chip'] = 0
 
         self.all_image_df = all_image_df
 

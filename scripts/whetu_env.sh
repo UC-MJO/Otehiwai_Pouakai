@@ -2,7 +2,7 @@
 # Use after activating your Python environment:
 #   source /path/to/Otehiwai_Pouakai/scripts/whetu_env.sh
 
-export POUAKAI_RAW_ARCHIVE_DIR=/home/phys/astro8/MJArchive/octans
+export POUAKAI_BC_RAW_ARCHIVE_DIR=/home/phys/astro8/MJArchive/octans
 export POUAKAI_MOA_RAW_ARCHIVE_DIR=/home/phys/astro8/MJArchive/MOA 
 export POUAKAI_CAL_LIST_DIR=/home/phys/astronomy/Pouakai_cal_Lists
 export POUAKAI_CAL_FILES_DIR=/home/phys/astronomy/Pouakai_cal_Files
