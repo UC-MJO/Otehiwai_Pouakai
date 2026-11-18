@@ -212,7 +212,7 @@ def _clustering_bc_darks(chip_filtered_df, delta_t=1, exp_tolerance=1.0, camera=
     cluster_offset = 0
     name_counter = defaultdict(int)
 
-    for readout, chip, df_ro in chip_filtered_df.groupby(['readout', 'chip']):
+    for (readout, chip), df_ro in chip_filtered_df.groupby(['readout', 'chip']):
         df_ro = df_ro.sort_values('jd').reset_index(drop=True)
 
         X = df_ro[['jd', 'exptime']].astype(float).values

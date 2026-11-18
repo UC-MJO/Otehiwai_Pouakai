@@ -1,8 +1,8 @@
 """
-Master flat frame construction for the B&C reduction pipeline.
+Master flat frame construction for the B&C and MOA reduction pipeline.
 
 Flat frames are grouped into calibration blocks per (readout mode,
-band), using agglomerative clustering with complete linkage and a
+band, chip), using agglomerative clustering with complete linkage and a
 Chebyshev metric to strictly bound both the time span and exposure-time
 span of any single block (see `_clustering_bc_flats`). Each block is
 matched to a suitable master dark (via `dark_masters.get_master_dark`)
@@ -90,7 +90,7 @@ def assign_time_blocks(df, delta_t):
     return block_ids
 
 
-def _filter_bc_flats(exp_tol=1, flat_delta_t=30, dark_delta_t=1):
+def _filter_flats(exp_tol=1, flat_delta_t=30, dark_delta_t=1, camera=None):
     """
     Load the catalog of all recorded flat frames, restrict to usable
     frames (correct detector shape, sensible count-level range, not
@@ -99,34 +99,40 @@ def _filter_bc_flats(exp_tol=1, flat_delta_t=30, dark_delta_t=1):
     Parameters
     ----------
     exp_tol : float
-        Passed to `_clustering_bc_flats` as `exp_tolerance`.
+        Passed to `_clustering_flats` as `exp_tolerance`.
     flat_delta_t : float
-        Passed to `_clustering_bc_flats` as `delta_t`.
+        Passed to `_clustering_flats` as `delta_t`.
     dark_delta_t : float
-        Passed to `_clustering_bc_flats` as `dark_delta_t`, for matching
+        Passed to `_clustering_flats` as `dark_delta_t`, for matching
         each flat frame to a master dark.
+    camera : str
+        The camera used, to identify flats from the correct camera
 
     Returns
     -------
     pandas.DataFrame
         Filtered, clustered flat frame catalog with `cluster` and
-        `master_name` columns added (see `_clustering_bc_flats`).
+        `master_name` columns added (see `_clustering_flats`).
     """
-    initial_df = pd.read_csv(config.catalogue_file('bc_flat_image_list.csv'))
+    initial_df = pd.read_csv(config.catalogue_file(f'{camera}_flat_image_list.csv'))
 
-    shape_mask = initial_df['shape'].values.astype(int) == 2048
+    if camera == 'bc':
+        shape_mask = initial_df['shape'].values.astype(int) == 2048
+        initial_df['chip'] = 0
+    elif camera == 'moa':
+        shape_mask = initial_df['shape'].values.astype(int) == 4096
     upper_mask = initial_df['median'].astype(float) >= 10000
     lower_mask = initial_df['median'].astype(float) <= 48000
     bad_mask = initial_df['telescope'].values.astype(str) != 'bad'
 
     chip_filtered_df = initial_df[shape_mask & upper_mask & lower_mask & bad_mask].copy()
 
-    chip_filtered_df = _clustering_bc_flats(chip_filtered_df, delta_t=flat_delta_t, exp_tolerance=exp_tol, dark_delta_t=dark_delta_t)
+    chip_filtered_df = _clustering_flats(chip_filtered_df, delta_t=flat_delta_t, exp_tolerance=exp_tol, dark_delta_t=dark_delta_t, camera=camera)
 
     return chip_filtered_df
 
 
-def _clustering_bc_flats(chip_filtered_df, delta_t=30, exp_tolerance=1.0, dark_delta_t=1):
+def _clustering_flats(chip_filtered_df, delta_t=30, exp_tolerance=1.0, dark_delta_t=1, camera=None):
     """
     Group flat frames into calibration blocks, separately for each
     (readout mode, band) pair, using agglomerative clustering with
@@ -143,14 +149,14 @@ def _clustering_bc_flats(chip_filtered_df, delta_t=30, exp_tolerance=1.0, dark_d
     before and after matching to a master dark (via `get_master_dark`);
     blocks failing either check are dropped. Surviving blocks are
     assigned a `master_name` based on mean UTC date, band, readout mode,
-    and detector shape, with a `_v2`, `_v3`, ... suffix if a name would
+    detector shape, and chip, with a `_v2`, `_v3`, ... suffix if a name would
     otherwise collide within this call.
 
     Parameters
     ----------
     chip_filtered_df : pandas.DataFrame
         Flat frame catalog, already filtered to usable frames, with at
-        least `readout`, `band`, `jd`, `exptime`, and `shape` columns.
+        least `readout`, `band`, `jd`, `exptime`, 'chip' and `shape` columns.
     delta_t : float
         Clustering distance threshold, in Julian date (days), after
         scaling.
@@ -173,7 +179,7 @@ def _clustering_bc_flats(chip_filtered_df, delta_t=30, exp_tolerance=1.0, dark_d
     block_offset = 0
     name_counter = defaultdict(int)
 
-    for (readout, filt), df_ro in chip_filtered_df.groupby(['readout', 'band']):
+    for (readout, filt, chip), df_ro in chip_filtered_df.groupby(['readout', 'band', 'chip']):
         df_ro = df_ro.sort_values('jd').reset_index(drop=True)
 
         if len(df_ro) < 3:
@@ -217,6 +223,8 @@ def _clustering_bc_flats(chip_filtered_df, delta_t=30, exp_tolerance=1.0, dark_d
                     exp_tol=exp_tolerance,
                     date_tol=dark_delta_t,
                     shape=int(sub.iloc[j]['shape']),
+                    chip=chip, 
+                    camera=camera
                 )
 
             sub['master_dark'] = mdark
@@ -227,10 +235,13 @@ def _clustering_bc_flats(chip_filtered_df, delta_t=30, exp_tolerance=1.0, dark_d
             if len(sub) < 3:
                 continue
 
-            readout_str = normalize_readout(readout)
+            if camera == 'bc':
+                readout_str = normalize_readout(readout)
+            elif camera == 'moa':
+                readout_str = str(readout)
             shape_val = int(sub['shape'].iloc[0])
 
-            base_name = (f"master_flat_{jd_utc}_{filt}_{readout_str}_{shape_val}")
+            base_name = (f"master_flat_{jd_utc}_{filt}_{readout_str}_{shape_val}_{chip}")
 
             name_counter[base_name] += 1
             master_name = (base_name if name_counter[base_name] == 1 else f"{base_name}_v{name_counter[base_name]}")
@@ -249,7 +260,7 @@ def _clustering_bc_flats(chip_filtered_df, delta_t=30, exp_tolerance=1.0, dark_d
     return pd.concat(result, ignore_index=True)
 
 
-def make_master_flats(exp_tol=1, flat_delta_t=30, dark_delta_t=1, num_cores=1):
+def make_master_flats(exp_tol=1, flat_delta_t=30, dark_delta_t=1, num_cores=1, camera=None):
     """
     Build any master flat frames not yet present in the master flat
     catalog, and update the catalog CSV.
@@ -270,19 +281,24 @@ def make_master_flats(exp_tol=1, flat_delta_t=30, dark_delta_t=1, num_cores=1):
     num_cores : int
         If greater than 1, build masters for different blocks in
         parallel threads.
+    camera : str
+        Camera used to take the images being analysed
     """
-    flat_list = _filter_bc_flats(exp_tol=exp_tol, flat_delta_t=flat_delta_t, dark_delta_t=dark_delta_t)
+    flat_list = _filter_flats(exp_tol=exp_tol, flat_delta_t=flat_delta_t, dark_delta_t=dark_delta_t)
     try:
-        masters = pd.read_csv(config.cal_list_dir() + 'bc_master_flat_list.csv')
+        masters = pd.read_csv(config.cal_list_dir() + f'{camera}_master_flat_list.csv')
     except Exception:
         masters = pd.DataFrame(columns=['name', 'telescope', 'exptime', 'jd', 'date', 'band',
-                                         'readout', 'filename', 'nimages', 'shape', 'median'])
+                                         'readout', 'filename', 'nimages', 'shape', 'median', 'chip'])
+
+    if camera == 'bc':
+        masters['chip'] = 0
 
     all_names = set(flat_list['master_name'].values) if len(flat_list) else set()
     master_names = set(masters['name'].values) if len(masters) else set()
 
     flat_list = flat_list.reset_index(drop=True)
-    flat_list.to_csv(config.cal_list_dir() + 'temp_bc_flat_list_filtered.csv', index=False)
+    flat_list.to_csv(config.cal_list_dir() + f'temp_{camera}_flat_list_filtered.csv', index=False)
 
     new = all_names - master_names
     new = list(new)
@@ -294,7 +310,7 @@ def make_master_flats(exp_tol=1, flat_delta_t=30, dark_delta_t=1, num_cores=1):
     if len(new) > 0:
         if num_cores > 1:
             entries = Parallel(n_jobs=num_cores, backend="threading", prefer="threads")(
-                delayed(flat_processing)(updated_flat_list, cluster)
+                delayed(flat_processing)(updated_flat_list, cluster, camera)
                 for cluster in tqdm(updated_flat_list['cluster'].unique(), desc='Processing files')
             )
             for entry in entries:
@@ -302,17 +318,17 @@ def make_master_flats(exp_tol=1, flat_delta_t=30, dark_delta_t=1, num_cores=1):
                     masters = pd.concat([masters, entry], ignore_index=True)
         else:
             for cluster in tqdm(updated_flat_list['cluster'].unique(), desc='Processing files'):
-                entry = flat_processing(updated_flat_list, cluster)
+                entry = flat_processing(updated_flat_list, cluster, camera)
                 if entry is not None:
                     masters = pd.concat([masters, entry], ignore_index=True)
 
     masters = masters.reset_index(drop=True)
     print('Done creating master flats, total masters:', len(masters))
 
-    masters.to_csv(config.cal_list_dir() + 'bc_master_flat_list.csv', index=False)
+    masters.to_csv(config.cal_list_dir() + f'{camera}_master_flat_list.csv', index=False)
 
 
-def _bc_master_flats(flat_list):
+def _master_flats(flat_list, camera):
     """
     Build a single master flat from the frames in `flat_list` (all rows
     are assumed to belong to the same cluster/block, each already
@@ -325,7 +341,7 @@ def _bc_master_flats(flat_list):
     ----------
     flat_list : pandas.DataFrame
         Rows (all one cluster) from the clustered flat frame catalog, as
-        produced by `_clustering_bc_flats`, including a `master_dark`
+        produced by `_clustering_flats`, including a `master_dark`
         column giving each frame's matched master dark file.
 
     Returns
@@ -341,6 +357,7 @@ def _bc_master_flats(flat_list):
     master_name = flat_list['master_name'].values[0]
     readout_mode = flat_list['readout'].values[0]
     band = flat_list['band'].values[0]
+    chip = flat_list['chip'].values[0]
 
     entry = {}
 
@@ -356,6 +373,7 @@ def _bc_master_flats(flat_list):
         header['JDSTART'] = time_jd
         header['SIGCLIP'] = True
         header['BAND'] = band
+        header["CHIP"] = chip
 
         phdu = fits.PrimaryHDU(master, header)
         ehdu = fits.ImageHDU(std)
@@ -371,7 +389,7 @@ def _bc_master_flats(flat_list):
         subprocess.run(['gzip', '-f', '--', str(save_name)], check=True)
 
         entry['name'] = master_name
-        entry['telescope'] = 'B&C'
+        entry['telescope'] = camera
         entry['exptime'] = np.nanmean(flat_list['exptime'].astype(float))
         entry['readout'] = str(readout_mode)
         entry['jd'] = time_jd
@@ -381,6 +399,7 @@ def _bc_master_flats(flat_list):
         entry['filename'] = str(save_name.with_suffix('.fits.gz'))
         entry['shape'] = master.shape[0]
         entry['median'] = float(np.nanmedian(master))
+        entry['chip'] = chip
 
         return pd.DataFrame([entry])
 
@@ -389,17 +408,17 @@ def _bc_master_flats(flat_list):
         return None
 
 
-def flat_processing(flat_list, cluster):
+def flat_processing(flat_list, cluster, camera):
     """
     Build a master flat for a single cluster ID within `flat_list`. Thin
-    wrapper around `_bc_master_flats` used as the per-block unit of work
+    wrapper around `_master_flats` used as the per-block unit of work
     in `make_master_flats`'s (optionally parallel) loop.
     """
     sub_flat_list = flat_list[flat_list['cluster'] == cluster].copy()
-    return _bc_master_flats(sub_flat_list)
+    return _master_flats(sub_flat_list, camera)
 
 
-def get_master_flat(jd, readout, band, date_tol=30, shape=2048):
+def get_master_flat(jd, readout, band, date_tol=30, shape=2048, chip=0, camera=None):
     """
     Find the closest-in-time suitable master flat for a given readout
     mode, band, and detector shape.
@@ -431,11 +450,14 @@ def get_master_flat(jd, readout, band, date_tol=30, shape=2048):
     normalized before combination, so their individual exposure times
     don't need to match the science frame's.
     """
-    catalogue = config.catalogue_file('bc_master_flat_list.csv')
+    catalogue = config.catalogue_file(f'camera_master_flat_list.csv')
     try:
         flats = pd.read_csv(catalogue)
     except Exception:
         return 'none', -999
+
+    if camera == 'bc':
+        flats['chip'] = 0
 
     if len(flats) == 0:
         return 'none', -999
@@ -443,12 +465,14 @@ def get_master_flat(jd, readout, band, date_tol=30, shape=2048):
     dreadout = flats['readout'].values.astype(str)
     dband = flats['band'].values.astype(str)
     dshape = flats['shape'].values.astype(int)
+    dchip = flats['chip'].values.astype(int)
 
     readout_ind = dreadout == str(readout)
     band_ind = dband == str(band)
     shape_ind = dshape == int(shape)
+    chip_ind = dchip = int(chip)
 
-    mask = readout_ind & shape_ind & band_ind
+    mask = readout_ind & shape_ind & band_ind & chip_ind
     good = flats.loc[mask]
 
     if len(good) == 0:
