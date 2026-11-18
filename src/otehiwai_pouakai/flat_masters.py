@@ -284,7 +284,7 @@ def make_master_flats(exp_tol=1, flat_delta_t=30, dark_delta_t=1, num_cores=1, c
     camera : str
         Camera used to take the images being analysed
     """
-    flat_list = _filter_flats(exp_tol=exp_tol, flat_delta_t=flat_delta_t, dark_delta_t=dark_delta_t)
+    flat_list = _filter_flats(exp_tol=exp_tol, flat_delta_t=flat_delta_t, dark_delta_t=dark_delta_t, camera=camera)
     try:
         masters = pd.read_csv(config.cal_list_dir() + f'{camera}_master_flat_list.csv')
     except Exception:

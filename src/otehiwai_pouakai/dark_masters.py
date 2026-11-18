@@ -288,7 +288,7 @@ def make_master_darks(exp_tol=1, dark_delta_t=1, num_cores=1, camera=None):
         If greater than 1, build masters for different clusters in
         parallel threads.
     """
-    dark_list = _filter_darks(exp_tol=exp_tol, dark_delta_t=dark_delta_t)
+    dark_list = _filter_darks(exp_tol=exp_tol, dark_delta_t=dark_delta_t, camera=camera)
     try:
         masters = pd.read_csv(config.cal_list_dir() + f'{camera}_master_dark_list.csv')
     except Exception:
@@ -324,12 +324,12 @@ def make_master_darks(exp_tol=1, dark_delta_t=1, num_cores=1, camera=None):
     if len(new) > 0:
         if num_cores > 1:
             entries = Parallel(n_jobs=num_cores, backend="threading", prefer="threads")(
-                delayed(dark_processing)(updated_dark_list, cluster)
+                delayed(dark_processing)(updated_dark_list, cluster, camera=camera)
                 for cluster in tqdm(updated_dark_list['cluster'].unique(), desc='Processing files'))
         else:
             entries = []
             for cluster in tqdm(updated_dark_list['cluster'].unique(), desc='Processing files'):
-                entries.append(dark_processing(updated_dark_list, cluster))
+                entries.append(dark_processing(updated_dark_list, cluster, camera=camera))
 
         for entry in entries:
             if entry is not None:
@@ -410,14 +410,14 @@ def _master_darks(dark_list, camera):
 
     return pd.DataFrame([entry])
 
-def dark_processing(dark_list, cluster):
+def dark_processing(dark_list, cluster, camera=None):
     """
     Build a master dark for a single cluster ID within `dark_list`.
     Thin wrapper around `_master_darks` used as the per-cluster unit
     of work in `make_master_darks`'s (optionally parallel) loop.
     """
     sub_dark_list = dark_list[dark_list['cluster'] == cluster].copy()
-    return _master_darks(sub_dark_list)
+    return _master_darks(sub_dark_list, camera=camera)
 
 def get_master_dark(jd, exptime, readout, exp_tol=1, date_tol=3, shape=2048, chip=0, camera=None):
     """

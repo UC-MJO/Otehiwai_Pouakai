@@ -89,11 +89,11 @@ from otehiwai_pouakai.pipeline import Pouakai, setup_logging
 from otehiwai_pouakai.matau import get_file_paths
 from otehiwai_pouakai.failure_ledger import load_known_failures, load_all_failures
 
-NUM_CORES = 20
+NUM_CORES = 1
 ORGANISE_GLOB = '/home/phys/astro8/MJArchive/octans/'          # full archive, all subfolders
 # TEST_NIGHT_GLOB = '/home/phys/astro8/MJArchive/octans/20250914/*.fit'  # single night to run
-TEST_NIGHT_GLOB = '/home/phys/astro8/MJArchive/MOA/20261116/*.fit*'
-SAVE_LOCATION = '/home/users/tke61/Pouakai_Test_moa_first_test/'      # adjust as needed
+TEST_NIGHT_GLOB = '/home/phys/astro8/MJArchive/MOA/ALERT/A19*WASP46b-R-[1-9].fit.gz'
+SAVE_LOCATION = '/home/users/tke61/Pouakai_moa_first_test/'      # adjust as needed
 
 # Calibration matching tolerances -- see calibration_saurus.py docstring.
 # The previous default (match_tol_px=1.0) was tighter than typical
@@ -216,10 +216,10 @@ def main():
     # mode='modulo' runs the FULL chain: reduction -> WCS solving ->
     # calibration, so failure modes at every stage are visible.
     Pouakai(files=test_files, save_location=SAVE_LOCATION, num_cores=NUM_CORES,
-            organise_files=True, make_masters=True, run=True, mode='modulo',
+            organise_files=True, make_masters=True, run=True, mode='red',
             dark_exp_tol=3, dark_date_tol=12, dark_delta_t=12,
             flat_exp_tol=3, flat_date_tol=45, flat_delta_t=15,
-            match_tol_px=MATCH_TOL_PX, isolation_radius_px=ISOLATION_RADIUS_PX, subtract_background=True, camera='bc')
+            match_tol_px=MATCH_TOL_PX, isolation_radius_px=ISOLATION_RADIUS_PX, subtract_background=True, camera='moa')
 
     _print_stage_summary(logger, SAVE_LOCATION, len(test_files))
     logger.info('Test run complete.')

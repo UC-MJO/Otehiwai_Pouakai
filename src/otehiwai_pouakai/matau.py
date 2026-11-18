@@ -244,7 +244,7 @@ def update_df(files, camera):
 
     df = df.sort_values(['object', 'jd_utc', 'band', 'jd', 'chip']).reset_index(drop=True)
     df['running_number'] = (df.groupby(['object', 'jd_utc', 'band', 'chip']).cumcount().add(1).astype(str).str.zfill(4))
-    df['master_name'] = (df['object'].astype(str) + '_' + df['jd_utc'] + '_' + df['band'].astype(str) + '_' + df['running_number'] + '_' + df['chip'])
+    df['master_name'] = (df['object'].astype(str) + '_' + df['jd_utc'] + '_' + df['band'].astype(str) + '_' + df['running_number'] + '_' + df['chip'].astype(str))
 
     requested_files = {config.absolute_path(filename) for filename in files}
     updated_sci_list = df[df['filename'].isin(requested_files)].copy()

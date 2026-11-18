@@ -85,7 +85,7 @@ def open_and_inspect(file, camera=None):
                     imagetype = _MOA_IMG_TYPES[image_prefix]
                 else:
                     raise Exception("file found in the wrong folder")
-                entry['date'] = header['DATE-OBS'].strip() + 'T' + header['TIME_OBS'].strip()
+                entry['date'] = header['DATE-OBS'].strip() + 'T' + header['TIME-OBS'].strip()
                 entry['readout'] = 'Standard moa readout'
                 entry['band'] = camera + '_' + header.get('COLOUR', 'Clear')
                 obj = header.get('FIELD', None)
@@ -133,7 +133,7 @@ class organise_fli_files():
     each time.
     """
 
-    def __init__(self, num_cores=1, retry_bad=False, all_files_dir=None, camera=None):
+    def __init__(self, num_cores=1, camera=None, retry_bad=False, all_files_dir=None):
         """
         Parameters
         ----------
@@ -157,7 +157,7 @@ class organise_fli_files():
             rows before diffing against the current file list, so those
             files are treated as "new" again and re-inspected.
         camera : str
-            The camera that the data tp be analyszed was taken on, currently can be 'moa'
+            The camera that the data to be analyszed was taken on, currently can be 'moa'
             or 'bc'
         """
         self.num_cores = num_cores
@@ -167,11 +167,13 @@ class organise_fli_files():
         root = Path(config.require_input_dir(resolved_dir, f'POUAKAI_{self.camera.upper()}_RAW_ARCHIVE_DIR / fli_dir'))
         self.cal_list_path = config.cal_list_dir()
         
-        files = list(root.rglob("*.fit*"))
+        files = list(root.rglob("*A19*.fit.gz")) + list(root.rglob("*D259*.fit.gz")) + list(root.rglob("*F66*.fit.gz"))
+        print(len(list(root.rglob("*A19*.fit.gz"))), len(list(root.rglob("*D259*.fit.gz"))), len(list(root.rglob("*F66*.fit.gz"))))
         if camera == 'moa':
-            mosaics_to_skip = set(root.rglob("*-0.fit*"))
-            focus_images_to_skip = set(root.rglob("*-0.fit*"))
+            mosaics_to_skip = set(root.rglob("*-0.fit.gz"))
+            focus_images_to_skip = set(root.rglob("*-99.fit.gz"))
             files = list(set(files) - mosaics_to_skip - focus_images_to_skip)
+
         self.files = files
         print(f"Found {len(files)} files")
 
